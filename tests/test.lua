@@ -59,6 +59,9 @@ local function test(name, fn)
       if argv[1] == "git" and argv[2] == "tag" then
         return { ok = true, stdout = behavior.tags, stderr = "", code = 0 }
       end
+      if argv[1] == "git" and argv[2] == "checkout" and behavior.checkout_failure then
+        return { ok = false, stdout = "", stderr = "checkout failed", code = 1 }
+      end
       if argv[1] == "git" and argv[2] == "rev-parse" then
         local value = behavior.mismatch and argv[4] == "HEAD^{commit}" and "different" or "same"
         return { ok = true, stdout = value .. "\n", stderr = "", code = 0 }
@@ -175,10 +178,43 @@ test(
 
 test("installs a missing plugin and publishes its checkout", function(rpm, actions, _, _, behavior)
   behavior.clone_success = true
-  rpm.setup({ root = root, install = "manual", plugins = { "bob/new" } })
+  rpm.setup({ root = root, install = "manual", plugins = { { "bob/new", version = "~1.2.0" } } })
   assert(actions.rpm_install.run({}, { plugin = "bob/new" }).status == "installed")
   local head = assert(io.open(root .. "/bob/new/.git/HEAD", "r"))
   head:close()
+end)
+
+test("selects caret ranges in major version zero", function(rpm, actions, _, calls, behavior)
+  behavior.tags = "v0.2.0\nv0.2.8\nv0.3.0\n"
+  rpm.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "alice/example", version = "^0.2.0" } },
+  })
+  actions.rpm_update.run({}, { plugin = "alice/example" })
+  local checkout = called(calls, "git", "checkout")
+  assert(checkout and checkout.argv[4] == "v0.2.8")
+end)
+
+test("cleans up after version checkout failure", function(rpm, actions, _, calls, behavior)
+  behavior.clone_success, behavior.checkout_failure = true, true
+  rpm.setup({ root = root, install = "manual", plugins = { { "bob/failed", version = "~1.2.0" } } })
+  local ok, err = pcall(actions.rpm_install.run, {}, { plugin = "bob/failed" })
+  assert(not ok and tostring(err):match("checkout failed"))
+  assert(called(calls, "rm", "-rf"))
+end)
+
+test("bulk operations skip local and disabled plugins", function(rpm, actions, _, calls)
+  rpm.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "alice/example", path = root .. "/alice/example" },
+      { "bob/missing", enabled = false },
+    },
+  })
+  local result = actions.rpm_install.run({}, {})
+  assert(next(result.plugins) == nil and not called(calls, "git", "clone"))
 end)
 
 test("reports clone timeouts and cleans up", function(rpm, actions, _, calls, behavior)
