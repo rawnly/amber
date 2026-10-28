@@ -1,5 +1,6 @@
 local root = assert(arg[1], "pass fixture directory")
 local actions, logs, calls = {}, {}, {}
+local version_mismatch = false
 rex = {
   action = function(action)
     actions[action.name] = action
@@ -27,6 +28,11 @@ rex = {
     end
     if argv[1] == "git" and argv[2] == "tag" then
       return { ok = true, stdout = "v1.2.0\nv1.4.0\nv2.0.0\n", stderr = "", code = 0 }
+    end
+    if argv[1] == "git" and argv[2] == "rev-parse" then
+      local output = version_mismatch and argv[4] == "HEAD^{commit}" and "different-commit\n"
+        or "same-commit\n"
+      return { ok = true, stdout = output, stderr = "", code = 0 }
     end
     if argv[1] == "git" and (argv[2] == "pull" or argv[2] == "fetch" or argv[2] == "checkout") then
       return { ok = true, stdout = "updated", stderr = "", code = 0 }
@@ -91,7 +97,10 @@ rpm.setup({
 })
 assert(_G.plugin_message == "local")
 assert(not pcall(actions.rpm_update.run, {}, { plugin = "alice/example" }))
+version_mismatch = true
 rpm.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
+assert(logs[#logs][2]:match("checkout does not match"))
+version_mismatch = false
 assert(actions.rpm_update.run({}, { plugin = "alice/example" }).status == "updated")
 assert(calls[#calls].argv[2] == "checkout" and calls[#calls].argv[4] == "v1.4.0")
 rpm.setup({ root = root, plugins = { { "alice/example", version = ">=1.0.0" } } })

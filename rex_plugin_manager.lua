@@ -103,6 +103,26 @@ function M.setup(config)
       end
     end
     if ready then
+      if
+        plugin.enabled
+        and plugin.version
+        and not plugin.local_path
+        and util.exists(plugin.dir .. "/.git/HEAD")
+      then
+        local matches, err = git.version_status(plugin, os.time() + 3)
+        if matches == false then
+          rex.log(
+            "warn",
+            "rpm: "
+              .. plugin.name
+              .. ": checkout does not match version "
+              .. plugin.version
+              .. "; run rpm_update"
+          )
+        elseif err then
+          rex.log("warn", "rpm: " .. plugin.name .. ": cannot check version: " .. err)
+        end
+      end
       load_plugin(plugin)
     end
   end
