@@ -6,8 +6,8 @@ local M = { version = "0.1.0" }
 
 local source = debug.getinfo(1, "S").source
 local directory = source:match("^@?(.*/)") or "./"
-local util = dofile(directory .. "rpm/util.lua")
-local parse = dofile(directory .. "rpm/spec.lua")
+local util = assert(loadfile(directory .. "rpm/util.lua"))()
+local parse = assert(loadfile(directory .. "rpm/spec.lua"))()
 local git = assert(loadfile(directory .. "rpm/git.lua"))(util)
 local loader = assert(loadfile(directory .. "rpm/loader.lua"))(util)
 local install, update = git.install, git.update
