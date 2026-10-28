@@ -63,6 +63,7 @@ assert(actions.rpm_update.run({}, { plugin = "alice/example" }).status == "updat
 assert(calls[#calls].argv[1] == "git" and calls[#calls].opts.cwd == root .. "/alice/example")
 assert(not pcall(actions.rpm_install.run, {}, {}))
 assert(not pcall(actions.rpm_install.run, {}, { plugin = "unknown/repo" }))
+---@diagnostic disable-next-line: assign-type-mismatch
 rpm.setup({ root = root, install = "manual", plugins = { "../escape", { "a/b", enabled = "no" } } })
 assert(logs[#logs][2]:match("invalid plugin"))
 _G.plugin_message = nil
@@ -96,6 +97,7 @@ assert(calls[#calls].argv[2] == "checkout" and calls[#calls].argv[4] == "v1.4.0"
 rpm.setup({ root = root, plugins = { { "alice/example", version = ">=1.0.0" } } })
 assert(logs[#logs][2]:match("invalid version"))
 rpm.setup({ root = root, plugins = { "carol/shared" } })
+---@diagnostic disable-next-line: undefined-field
 assert(_G.shared_source == "rex")
 assert(not pcall(require, "shared.missing"))
 rpm.setup({ root = root, install = "manual", plugins = { "alice/example", "bob/example" } })

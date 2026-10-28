@@ -16,10 +16,10 @@ end
 
 ---@param plugin RpmPlugin
 ---@param dir string
----@return RexExecResult? result
+---@return string? version
 ---@return string? err
 local function resolve_version(plugin, dir, deadline)
-  local version = plugin.version
+  local version = assert(plugin.version)
   local operator = version:sub(1, 1)
   if operator == "^" or operator == "~" then
     local major, minor, patch = version:match("^[%^~](%d+)%.(%d+)%.(%d+)$")

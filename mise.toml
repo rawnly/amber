@@ -1,6 +1,7 @@
 [tools]
 lua = "5.1.5"
 stylua = "2.3.1"
+lua-language-server = "3.19.2"
 
 [tasks.test]
 description = "Run Lua 5.1 tests"
@@ -14,7 +15,11 @@ run = "stylua rex_plugin_manager.lua rpm tests types"
 description = "Check Lua formatting"
 run = "stylua --check rex_plugin_manager.lua rpm tests types"
 
+[tasks.types]
+description = "Run Lua Language Server diagnostics"
+run = "lua-language-server --check . --checklevel Warning --check_format pretty"
+
 [tasks.check]
-description = "Check formatting, Lua syntax, and tests"
-depends = ["fmt:check", "test"]
-run = "luac -p rex_plugin_manager.lua rpm/*.lua tests/test.lua types/rex.lua"
+description = "Check formatting, types, Lua syntax, and tests"
+depends = ["fmt:check", "test", "types"]
+run = "luac -p rex_plugin_manager.lua rpm/*.lua tests/test.lua types/*.lua"

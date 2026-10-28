@@ -1,6 +1,7 @@
 -- Rex Plugin Manager: install GitHub repositories and load their Lua entry points.
 
 ---@type RpmModule
+---@diagnostic disable-next-line: missing-fields
 local M = { version = "0.1.0" }
 
 local source = debug.getinfo(1, "S").source

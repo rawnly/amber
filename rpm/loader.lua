@@ -33,7 +33,7 @@ table.insert(package.loaders, 2, plugin_searcher)
 
 ---@param name string
 ---@param title string
----@param operation fun(plugin: RpmPlugin): string?, string?
+---@param operation fun(plugin: RpmPlugin, deadline?: number): string?, string?
 ---@param plugins table<string, RpmPlugin>
 ---@param ordered RpmPlugin[]
 ---@param all? boolean

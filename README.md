@@ -89,7 +89,7 @@ mise install
 mise run check
 ```
 
-`mise run test` runs the Lua 5.1 tests using a temporary fixture. `mise run fmt` formats the Lua files with StyLua, and `mise run fmt:check` checks formatting without changing files. `mise run check` runs both checks and validates Lua syntax. Rex is not required for these tests.
+`mise run test` runs the Lua 5.1 tests using a temporary fixture. `mise run fmt` formats the Lua files with StyLua, and `mise run fmt:check` checks formatting without changing files. `mise run types` runs Lua Language Server diagnostics. `mise run check` runs the tests, formatting and type checks, and validates Lua syntax. Rex is not required for these tests.
 
 Lua Language Server reads `.luarc.json` and the editor-only Rex API declarations in `types/rex.lua`. Plugin specifications and manager functions use LuaLS annotations for completion and diagnostics; these types do not enforce checks at runtime. The Rex declarations cover only the API used by this project.
 

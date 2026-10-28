@@ -29,4 +29,5 @@
 ---@field log fun(level: string, message: string)
 
 ---@type RexApi
+---@diagnostic disable-next-line: missing-fields
 rex = {}
