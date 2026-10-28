@@ -37,7 +37,7 @@ rex do rpm_install
 rex config reload
 ```
 
-Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Updates use `git pull --ff-only`; failures are reported without resetting local changes. `rex do rpm_install` attempts all enabled managed plugins sequentially and reports failures as an action error; `rex do rpm_install plugin=owner/repo` targets one. Rex actions have a time limit; RPM limits Git operation time and reports when its action budget is exhausted. Retry or install plugins individually. Git authentication must work non-interactively; terminal prompts are disabled.
+Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Unversioned updates use `git pull --ff-only`; versioned updates fetch and resolve the configured version. Failures are reported without resetting local changes. `rex do rpm_install` attempts all enabled managed plugins sequentially and reports failures as an action error; `rex do rpm_install plugin=owner/repo` targets one. Rex actions have a time limit; RPM limits Git operation time and reports when its action budget is exhausted. Retry or install plugins individually. Git authentication must work non-interactively; terminal prompts are disabled.
 
 By default plugins live at `$XDG_DATA_HOME/rex/plugins/<owner>/<repo>`, or `~/.local/share/rex/plugins/<owner>/<repo>` if `XDG_DATA_HOME` is unset. Override with `root = "/absolute/path"` in `setup`; relative paths and `~` are not expanded. Only GitHub `owner/repo` shorthand is supported for fetching. Plugins load in declaration order; missing plugins and load errors are logged and do not stop other plugins loading.
 
@@ -138,7 +138,7 @@ Specify a Git tag or commit, or a simple semver range:
 
 For `^` and `~`, the manager selects the highest matching stable `1.2.3` or `v1.2.3` Git tag at install or update. Three numeric components are required; prereleases, wildcard ranges, and other lazy.nvim version expressions are not supported. Caret ranges follow semver's special rules for major version zero. Exact versions are Git refs (use the tag's `v` prefix if present). Tags take precedence over remote branches of the same name; branch names resolve to the fetched `origin` branch. Versions check out detached; updates fetch tags and re-resolve the constraint. They do not change an existing checkout until `rpm_update` is run. Versions are not supported for local `path` plugins. There is no lockfile, so ranges may resolve differently over time.
 
-This first version does not provide lockfiles, dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory; it is not treated as an installed plugin.
+This first version does not provide lockfiles, dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory or a sibling `.rpm-lock` directory. They are not treated as installed plugins. After confirming no install is still running, remove a stale lock to retry.
 
 ## Inspiration
 

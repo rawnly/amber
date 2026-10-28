@@ -42,7 +42,7 @@ RPM keeps both an ordered list for loading and a name-indexed table for action l
 
 For every enabled plugin, RPM chooses `rex/lua` when present, otherwise `lua`, checks for the main module there, registers a searcher scoped to the main module namespace, and invokes `require(main).setup(opts)` inside `pcall`. It never falls back to `lua` when `rex/lua` exists. A missing module produces a warning; a load or setup failure is logged as an error, and RPM continues to the next plugin. Lua's global module cache and namespace are shared, so unrelated module-name collisions remain possible. Disabled plugins do not load or produce missing-entry warnings. Configuration validation errors, such as duplicate names or an invalid version, are logged and the offending spec is skipped.
 
-Loading checks the module file, not the Git checkout state or whether its current commit matches the declared version. Changing a version declaration does not switch an existing checkout until an update action is run. Plugins register their Rex actions and bindings during config load; their own action callbacks run later.
+Loading checks the module file and warns when a versioned managed checkout differs from its locally resolved version. Changing a version declaration does not switch an existing checkout until an update action is run; comparison does not fetch from the remote. Plugins register their Rex actions and bindings during config load; their own action callbacks run later.
 
 ## Installation and updates
 
