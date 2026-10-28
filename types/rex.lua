@@ -14,7 +14,7 @@
 ---@field timed_out? boolean
 
 ---@class RexActionArgs
----@field plugin string
+---@field plugin? string
 
 ---@class RexAction
 ---@field name string

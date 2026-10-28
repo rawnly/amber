@@ -20,18 +20,19 @@ rpm.setup({
 })
 ```
 
-Replace the manager path with your actual checkout path. The Rex-side module must be published to the smart-splits repository before Git installation can use it; until then, use the local checkout example below. Once published, reload, install, and reload again:
+Replace the manager path with your actual checkout path. The Rex-side module must be published to the smart-splits repository before Git installation can use it; until then, use the local checkout example below. By default, RPM installs missing enabled managed plugins automatically during configuration loading, including during `rex config check`. This performs network and filesystem operations and can slow down loading. Set `install = "manual"` in `rpm.setup` to disable automatic installs; then use `rex do rpm_install` and reload. Once published, run:
 
 ```sh
 rex config check
 rex config reload
-rex do rpm_install plugin=rawnly/smart-splits-backend-rex
+# To retry missing installs later:
+rex do rpm_install
 rex config reload
 ```
 
-Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Updates use `git pull --ff-only`; failures are reported without resetting local changes. Each action handles one plugin to fit Rex's action time limit. Git authentication must work non-interactively; terminal prompts are disabled.
+Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Updates use `git pull --ff-only`; failures are reported without resetting local changes. `rex do rpm_install` attempts all enabled managed plugins sequentially and reports failures as an action error; `rex do rpm_install plugin=owner/repo` targets one. Rex actions have a time limit, so a bulk install may be interrupted; retry it or install plugins individually. Git authentication must work non-interactively; terminal prompts are disabled.
 
-By default plugins live at `$XDG_DATA_HOME/rex/plugins/<owner>/<repo>`, or `~/.local/share/rex/plugins/<owner>/<repo>` if `XDG_DATA_HOME` is unset. Override with `root = "/absolute/path"` in `setup`. Only GitHub `owner/repo` shorthand is supported for fetching. Plugins load in declaration order; missing plugins and load errors are logged and do not stop other plugins loading.
+By default plugins live at `$XDG_DATA_HOME/rex/plugins/<owner>/<repo>`, or `~/.local/share/rex/plugins/<owner>/<repo>` if `XDG_DATA_HOME` is unset. Override with `root = "/absolute/path"` in `setup`; relative paths and `~` are not expanded. Only GitHub `owner/repo` shorthand is supported for fetching. Plugins load in declaration order; missing plugins and load errors are logged and do not stop other plugins loading.
 
 For development or repositories that contain both Neovim and Rex code, specify an absolute local checkout and its Rex module name:
 
@@ -96,8 +97,6 @@ RPM looks for modules in `rex/lua/` if that directory exists, otherwise in `lua/
 
 ```lua
 local M = {}
-M.version = "0.1.0"
-M.author = "user@me.it"
 
 function M.setup(opts)
   rex.action({
@@ -112,7 +111,7 @@ end
 return M
 ```
 
-RPM adds the selected directory to `package.path`, requires the `main` module, and calls `setup(opts)`. Users can subsequently call its public API with `require("example")`. Lua's module namespace and `package.loaded` cache are shared: choose a unique module name. RPM rejects duplicate enabled `main` names but cannot prevent collisions with unrelated Lua modules. `setup` runs on every Rex config load and receives the declaration's `opts` table (empty by default). Register actions and bindings there, not later inside an action. Metadata is optional and informational. Plugins execute arbitrary Lua with the Rex server's privileges; only install repositories you trust. Rex config checks also load plugins, so plugin setup should avoid side effects beyond configuration.
+RPM installs a Lua module searcher scoped to each plugin's `main` namespace, requires the `main` module, and calls `setup(opts)` without adding unrelated plugin files to `package.path`. Users can subsequently call its public API with `require("example")`. Lua's module namespace and `package.loaded` cache are shared: choose a unique module name. RPM rejects duplicate enabled `main` names but cannot prevent collisions with unrelated Lua modules. `setup` runs on every Rex config load and receives the declaration's `opts` table (empty by default). Register actions and bindings there, not later inside an action. Metadata is optional and informational. Plugins execute arbitrary Lua with the Rex server's privileges; only install repositories you trust. Rex config checks also load plugins, so plugin setup should avoid side effects beyond configuration.
 
 ## Versions
 
@@ -124,7 +123,7 @@ Specify a Git tag or commit, or a simple semver range:
 { "carol/rex-tools", version = "~1.2.0" }, -- latest stable 1.2.x tag
 ```
 
-For `^` and `~`, the manager selects the highest matching stable `1.2.3` or `v1.2.3` Git tag at install or update. Three numeric components are required; prereleases, wildcard ranges, and other lazy.nvim version expressions are not supported. Caret ranges follow semver's special rules for major version zero. Exact versions are Git refs (use the tag's `v` prefix if present). Versions check out detached; updates fetch tags and re-resolve the constraint. They do not change an existing checkout until `rpm_update` is run. Versions are not supported for local `path` plugins. There is no lockfile, so ranges may resolve differently over time.
+For `^` and `~`, the manager selects the highest matching stable `1.2.3` or `v1.2.3` Git tag at install or update. Three numeric components are required; prereleases, wildcard ranges, and other lazy.nvim version expressions are not supported. Caret ranges follow semver's special rules for major version zero. Exact versions are Git refs (use the tag's `v` prefix if present). Tags take precedence over remote branches of the same name; branch names resolve to the fetched `origin` branch. Versions check out detached; updates fetch tags and re-resolve the constraint. They do not change an existing checkout until `rpm_update` is run. Versions are not supported for local `path` plugins. There is no lockfile, so ranges may resolve differently over time.
 
 This first version does not provide lockfiles, dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory; it is not treated as an installed plugin.
 

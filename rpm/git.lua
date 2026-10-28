@@ -1,3 +1,4 @@
+---@type RpmUtil
 local util = ...
 local run, exists = util.run, util.exists
 
@@ -43,13 +44,28 @@ local function checkout_version(plugin, dir)
     end
     version = best
   end
-  return run({ "git", "checkout", "--detach", version, "--" }, { cwd = dir, timeout = 20 })
+  if operator ~= "^" and operator ~= "~" then
+    local tag = run(
+      { "git", "show-ref", "--verify", "--quiet", "refs/tags/" .. version },
+      { cwd = dir }
+    )
+    if not tag then
+      local branch = run(
+        { "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/" .. version },
+        { cwd = dir }
+      )
+      if branch then
+        version = "origin/" .. version
+      end
+    end
+  end
+  return run({ "git", "checkout", "--detach", version, "--" }, { cwd = dir, timeout = 5 })
 end
 
 ---@param plugin RpmPlugin
 ---@return string? status
 ---@return string? err
-local function install(plugin)
+local function install_unlocked(plugin)
   if plugin.local_path then
     return nil, "local plugins are managed outside rpm"
   end
@@ -84,13 +100,46 @@ local function install(plugin)
       return nil, checkout_err
     end
   end
-  -- Do not replace a destination created while cloning.
+  if exists(plugin.dir) then
+    run({ "rm", "-rf", "--", dir })
+    return nil, "destination appeared during installation"
+  end
   local moved, move_err = run({ "mv", "-n", "--", dir, plugin.dir })
   if not moved or exists(dir) then
     run({ "rm", "-rf", "--", dir })
     return nil, move_err or "destination appeared during installation"
   end
   return "installed"
+end
+
+---@param plugin RpmPlugin
+---@return string? status
+---@return string? err
+local function install(plugin)
+  if plugin.local_path then
+    return nil, "local plugins are managed outside rpm"
+  end
+  if exists(plugin.dir .. "/.git/HEAD") then
+    return "already installed"
+  end
+  local parent, parent_err = run({ "mkdir", "-p", plugin.parent })
+  if not parent then
+    return nil, parent_err
+  end
+  local lock = plugin.dir .. ".rpm-lock"
+  local locked = run({ "mkdir", "--", lock })
+  if not locked then
+    return nil, "installation locked: " .. lock
+  end
+  local ok, status, err = pcall(install_unlocked, plugin)
+  local removed, remove_err = run({ "rmdir", "--", lock })
+  if not removed then
+    return nil, "cannot release install lock " .. lock .. ": " .. tostring(remove_err)
+  end
+  if not ok then
+    return nil, tostring(status)
+  end
+  return status, err
 end
 
 ---@param plugin RpmPlugin

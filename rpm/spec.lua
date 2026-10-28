@@ -9,6 +9,18 @@ local function parse(spec, root)
     type(spec) == "table" and type(spec[1]) == "string",
     "plugin must be an owner/repository string or table"
   )
+  local allowed =
+    { [1] = true, opts = true, enabled = true, path = true, main = true, version = true }
+  for key in pairs(spec) do
+    assert(
+      allowed[key],
+      "unknown plugin option "
+        .. tostring(key)
+        .. " in "
+        .. spec[1]
+        .. "; allowed: opts, enabled, path, main, version"
+    )
+  end
   local owner, repo = spec[1]:match("^([%w_.-]+)/([%w_.-]+)$")
   assert(
     owner and owner ~= "." and owner ~= ".." and repo ~= "." and repo ~= "..",
@@ -26,7 +38,11 @@ local function parse(spec, root)
         and (spec.version:match("^[%w][%w._/-]*$") or spec.version:match("^[%^~]%d+%.%d+%.%d+$"))
         and not spec.version:find("..", 1, true)
       ),
-    "invalid plugin version: " .. spec[1]
+    "invalid version "
+      .. tostring(spec.version)
+      .. " for "
+      .. spec[1]
+      .. "; expected a tag, commit, ^1.2.3, or ~1.2.3"
   )
   assert(
     not spec.path or not spec.version,
@@ -36,8 +52,7 @@ local function parse(spec, root)
     spec.path == nil or (type(spec.path) == "string" and spec.path:sub(1, 1) == "/"),
     "plugin path must be absolute: " .. spec[1]
   )
-  assert(spec.entry == nil, "entry is no longer supported; use main: " .. spec[1])
-  local main = spec.main or repo
+  local main = spec.main or repo:gsub("%.rex$", "")
   assert(
     type(main) == "string"
       and main:match("^[%w_-]+[.%w_-]*$")

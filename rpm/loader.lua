@@ -1,17 +1,65 @@
+---@type RpmUtil
 local util = ...
 local exists = util.exists
+local module_roots = {}
+
+local function plugin_searcher(name)
+  for main, root in pairs(module_roots) do
+    if name == main or name:sub(1, #main + 1) == main .. "." then
+      local relative = name:gsub("%.", "/")
+      for _, path in ipairs({
+        root .. "/" .. relative .. ".lua",
+        root .. "/" .. relative .. "/init.lua",
+      }) do
+        if exists(path) then
+          return assert(loadfile(path))
+        end
+      end
+      return "\n\trpm: module " .. name .. " not found in " .. root
+    end
+  end
+  return "\n\trpm: no plugin owns " .. name
+end
+
+table.insert(package.loaders, 2, plugin_searcher)
 
 ---@param name string
 ---@param title string
 ---@param operation fun(plugin: RpmPlugin): string?, string?
 ---@param plugins table<string, RpmPlugin>
-local function register_action(name, title, operation, plugins)
+---@param ordered RpmPlugin[]
+---@param all? boolean
+local function register_action(name, title, operation, plugins, ordered, all)
   rex.action({
     name = name,
     title = title,
     category = "Plugins",
-    args = { plugin = "string" },
+    args = { plugin = all and "string?" or "string" },
     run = function(_, args)
+      if all and not args.plugin then
+        local results = {}
+        local failed = false
+        for _, plugin in ipairs(ordered) do
+          if plugin.enabled and not plugin.local_path then
+            local status, err = operation(plugin)
+            results[#results + 1] =
+              { plugin = plugin.name, status = status or "failed", error = err }
+            if not status then
+              failed = true
+            end
+          end
+        end
+        if failed then
+          local errors = {}
+          for _, result in ipairs(results) do
+            if result.error then
+              errors[#errors + 1] = result.plugin .. ": " .. result.error
+            end
+          end
+          error("plugin operation failed: " .. table.concat(errors, "; "), 0)
+        end
+        return { plugins = results, reload = "rex config reload" }
+      end
       local plugin = plugins[args.plugin]
       if not plugin then
         error("unknown plugin: " .. args.plugin, 0)
@@ -57,10 +105,7 @@ local function load_plugin(plugin)
   end
 
   local ok, load_err = pcall(function()
-    local paths = lua_dir .. "/?.lua;" .. lua_dir .. "/?/init.lua;"
-    if not package.path:find(paths, 1, true) then
-      package.path = paths .. package.path
-    end
+    module_roots[plugin.main] = lua_dir
     local module = require(plugin.main)
     assert(
       type(module) == "table" and type(module.setup) == "function",

@@ -16,6 +16,15 @@ rex = {
       return { ok = file ~= nil, stdout = "", stderr = "", code = file and 0 or 1 }
     end
     calls[#calls + 1] = { argv = argv, opts = opts }
+    if argv[1] == "mkdir" or argv[1] == "rm" or argv[1] == "rmdir" then
+      return { ok = true, stdout = "", stderr = "", code = 0 }
+    end
+    if argv[1] == "mktemp" then
+      return { ok = true, stdout = root .. "/temporary\n", stderr = "", code = 0 }
+    end
+    if argv[1] == "git" and argv[2] == "clone" then
+      return { ok = false, stdout = "", stderr = "clone failed", code = 1 }
+    end
     if argv[1] == "git" and argv[2] == "tag" then
       return { ok = true, stdout = "v1.2.0\nv1.4.0\nv2.0.0\n", stderr = "", code = 0 }
     end
@@ -25,6 +34,7 @@ rex = {
     return nil, "unexpected command"
   end,
 }
+package.path = root .. "/?.lua;" .. package.path
 local rpm = dofile("rex_plugin_manager.lua")
 rpm.setup({
   root = root,
@@ -35,15 +45,23 @@ rpm.setup({
 })
 assert(_G.plugin_message == "configured")
 assert(require("example") == package.loaded.example)
-assert(#logs == 1 and logs[1][2]:match("bob/missing"))
+assert(require("keys") == "user")
+assert(#logs == 1 and logs[1][2]:match("bob/missing") and logs[1][2]:match("clone failed"))
+local cloned = false
+for _, call in ipairs(calls) do
+  if call.argv[1] == "git" and call.argv[2] == "clone" then
+    cloned = true
+  end
+end
+assert(cloned)
 assert(actions.rpm_install and actions.rpm_update)
 assert(actions.rpm_install.run({}, { plugin = "alice/example" }).status == "already installed")
 assert(actions.rpm_update.run({}, { plugin = "alice/example" }).status == "updated")
-assert(calls[1].argv[1] == "git" and calls[1].opts.cwd == root .. "/alice/example")
+assert(calls[#calls].argv[1] == "git" and calls[#calls].opts.cwd == root .. "/alice/example")
+assert(not pcall(actions.rpm_install.run, {}, {}))
 assert(not pcall(actions.rpm_install.run, {}, { plugin = "unknown/repo" }))
-assert(not pcall(rpm.setup, { root = root, plugins = { "../escape" } }))
-assert(not pcall(rpm.setup, { root = root, plugins = { "a/b", "a/b" } }))
-assert(not pcall(rpm.setup, { root = root, plugins = { { "a/b", enabled = "no" } } }))
+rpm.setup({ root = root, install = "manual", plugins = { "../escape", { "a/b", enabled = "no" } } })
+assert(logs[#logs][2]:match("invalid plugin"))
 _G.plugin_message = nil
 logs = {}
 rpm.setup({
@@ -72,11 +90,12 @@ assert(not pcall(actions.rpm_update.run, {}, { plugin = "alice/example" }))
 rpm.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
 assert(actions.rpm_update.run({}, { plugin = "alice/example" }).status == "updated")
 assert(calls[#calls].argv[2] == "checkout" and calls[#calls].argv[4] == "v1.4.0")
-assert(
-  not pcall(rpm.setup, { root = root, plugins = { { "alice/example", version = ">=1.0.0" } } })
-)
+rpm.setup({ root = root, plugins = { { "alice/example", version = ">=1.0.0" } } })
+assert(logs[#logs][2]:match("invalid version"))
 rpm.setup({ root = root, plugins = { "carol/shared" } })
 assert(_G.shared_source == "rex")
-assert(not pcall(rpm.setup, { root = root, plugins = { "alice/example", "bob/example" } }))
-assert(not pcall(rpm.setup, { root = root, plugins = { { "alice/example", entry = "init.lua" } } }))
+rpm.setup({ root = root, install = "manual", plugins = { "alice/example", "bob/example" } })
+assert(logs[#logs][2]:match("duplicate"))
+rpm.setup({ root = root, install = "manual", plugins = { { "alice/example", entry = "init.lua" } } })
+assert(logs[#logs][2]:match("unknown plugin option"))
 print("tests passed")

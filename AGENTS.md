@@ -20,7 +20,7 @@ Write idiomatic Lua 5.1, use local functions and descriptive snake_case names, a
 
 ## Design constraints
 
-- Config load, reload, and `rex config check` execute plugin setup. Do not fetch or update plugins implicitly during config loading.
+- Config load, reload, and `rex config check` execute plugin setup and by default install missing enabled managed plugins. This can perform network and filesystem operations, including during checks; `install = "manual"` opts out. Do not silently add updates to config loading.
 - Rex runs config on the server. Use `rex.exec` with argument arrays for subprocesses; `os.execute` and `io.popen` are unavailable in Rex. Check process-start errors and nonzero exit status.
 - Plugin setup registers actions and bindings at config load; operations requiring a live session or client belong in callbacks. Respect Rex action deadlines.
 - Prefer `rex/lua/` when present, otherwise `lua/`; do not silently fall back to `lua/` when `rex/lua/` exists. Keep Lua module-name collisions and `package.loaded` semantics in mind.

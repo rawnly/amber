@@ -8,7 +8,14 @@ local function run(argv, opts)
     return nil, err
   end
   if not result.ok then
-    return nil, (result.stderr ~= "" and result.stderr) or ("exit status " .. tostring(result.code))
+    if result.timed_out then
+      return nil, "command timed out"
+    end
+    if result.signal then
+      return nil, "command terminated by " .. result.signal
+    end
+    local stderr = (result.stderr or ""):gsub("%s+$", "")
+    return nil, stderr ~= "" and stderr or ("exit status " .. tostring(result.code))
   end
   return result
 end
@@ -24,4 +31,7 @@ local function exists(path)
   return false
 end
 
+---@class RpmUtil
+---@field run fun(argv: string[], opts?: RexExecOptions): RexExecResult?, string?
+---@field exists fun(path: string): boolean
 return { run = run, exists = exists }

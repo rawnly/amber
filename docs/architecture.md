@@ -9,16 +9,16 @@ Rex config load / check / reload
   └─ rpm.setup(config)
        ├─ validate and normalize plugin specifications
        ├─ register rpm_install and rpm_update actions
-       └─ load enabled plugin entry points, in declaration order
+       └─ install missing managed plugins and load enabled entry points, in declaration order
             └─ require(main).setup(opts)
 
-Later: rex do rpm_install plugin=owner/repo
+Later: rex do rpm_install [plugin=owner/repo]
        rex do rpm_update  plugin=owner/repo
   └─ Rex invokes the corresponding registered action
        └─ RPM runs Git and filesystem commands via rex.exec
 ```
 
-Configuration loading is separate from fetching: `setup` does not clone or update repositories. A newly installed or updated plugin takes effect on the next `rex config reload`. Rex also executes the configuration during `rex config check`, so plugin setup code runs during checks as well.
+By default configuration loading automatically installs missing enabled managed plugins, then loads them in the same pass. Set `install = "manual"` to disable automatic installation. It never updates existing checkouts. Rex also executes the configuration during `rex config check`, so checks can perform network and filesystem operations. Plugins installed or updated later through actions take effect on the next `rex config reload`.
 
 Rex configuration runs on the server machine. RPM, local plugin paths, Git, and installed checkouts must therefore be available there, not merely on the client. Plugins execute as Lua code with the server user's privileges; RPM is not a sandbox.
 
@@ -34,19 +34,19 @@ Rex configuration runs on the server machine. RPM, local plugin paths, Git, and 
 | `main` | Lua module name; defaults to the repository name. |
 | `version` | Git ref or supported semver constraint for managed checkouts; incompatible with `path`. |
 
-All plugins, including local ones, have an `owner/repo` identity. RPM validates names and module names, rejects duplicate identities and enabled main module names, and derives a GitHub HTTPS URL for each name. For managed plugins, the default root is `$XDG_DATA_HOME/rex/plugins` or `~/.local/share/rex/plugins`; the checkout is `<root>/<owner>/<repo>`. `root` overrides that location. A local `path` bypasses this layout and is never installed or updated by RPM.
+All plugins, including local ones, have an `owner/repo` identity. RPM validates names and module names, logs and skips invalid specifications and duplicate identities or enabled main module names, and derives a GitHub HTTPS URL for each name. For managed plugins, the default root is `$XDG_DATA_HOME/rex/plugins` or `~/.local/share/rex/plugins`; the checkout is `<root>/<owner>/<repo>`. `root` overrides that location. A local `path` bypasses this layout and is never installed or updated by RPM.
 
 RPM keeps both an ordered list for loading and a name-indexed table for action lookup. These are built anew each time `setup` runs. Plugin modules must return a table containing `setup(opts)`; version and author fields in that module are not required. `version` in the manager's specification controls the checkout, not plugin metadata.
 
 ## Loading and errors
 
-For every enabled plugin, RPM chooses `rex/lua` when present, otherwise `lua`, checks for the main module there, prepends that root to `package.path`, and invokes `require(main).setup(opts)` inside `pcall`. It never falls back to `lua` when `rex/lua` exists. A missing module produces a warning; a load or setup failure is logged as an error, and RPM continues to the next plugin. Lua's global module cache and namespace are shared, so unrelated module-name collisions remain possible. Disabled plugins do not load or produce missing-entry warnings. Configuration validation errors, such as duplicate names or an invalid version, raise an error instead.
+For every enabled plugin, RPM chooses `rex/lua` when present, otherwise `lua`, checks for the main module there, registers a searcher scoped to the main module namespace, and invokes `require(main).setup(opts)` inside `pcall`. It never falls back to `lua` when `rex/lua` exists. A missing module produces a warning; a load or setup failure is logged as an error, and RPM continues to the next plugin. Lua's global module cache and namespace are shared, so unrelated module-name collisions remain possible. Disabled plugins do not load or produce missing-entry warnings. Configuration validation errors, such as duplicate names or an invalid version, are logged and the offending spec is skipped.
 
 Loading checks the module file, not the Git checkout state or whether its current commit matches the declared version. Changing a version declaration does not switch an existing checkout until an update action is run. Plugins register their Rex actions and bindings during config load; their own action callbacks run later.
 
 ## Installation and updates
 
-Actions take a `plugin` name and operate on one declared, enabled plugin per invocation. RPM rejects unknown, disabled, and externally managed plugins. Actions return a status and a reminder to reload; command failures become action errors.
+The install action accepts an optional `plugin` name; without one it processes enabled managed plugins sequentially and returns per-plugin results. The update action requires a name. Named actions reject unknown, disabled, and externally managed plugins. Bulk installs can exceed Rex's action deadline; retry or install individually. Actions return a reminder to reload; command failures, including failures in bulk installs, become action errors.
 
 For installation, RPM:
 
@@ -55,7 +55,7 @@ For installation, RPM:
 3. Runs `git clone` into that directory, then optionally checks out the requested version.
 4. Moves the completed clone into its final location without intentionally replacing an existing destination.
 
-Failed clones and checkouts trigger temporary-directory cleanup. An interruption can leave a `.rpm-*` directory behind. The implementation relies on the platform's `mktemp`, `mv`, and `rm` commands; its temporary-directory move is not a general-purpose transactional package store.
+Failed clones and checkouts trigger temporary-directory cleanup. A sibling lock directory serializes RPM installs of the same plugin. An interruption can leave a `.rpm-*` directory or `.rpm-lock` directory behind; inspect and remove stale locks manually. The implementation relies on the platform's `mktemp`, `mv`, and `rm` commands; its temporary-directory move is not a general-purpose transactional package store.
 
 For updates, an unversioned checkout uses `git pull --ff-only`. A versioned checkout fetches tags and checks out the selected ref in detached HEAD state. Git reports conflicts or other failures; RPM does not reset working-tree changes. Switching from a versioned detached checkout to an unversioned declaration may require manually checking out a branch before a pull can succeed.
 
