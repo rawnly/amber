@@ -98,6 +98,10 @@ function M.setup(config)
             { cwd = plugin.dir, timeout = math.min(2, deadline - os.time()) }
           )
         end
+        local version_matches, version_error
+        if plugin.version and git_result and os.time() < deadline then
+          version_matches, version_error = git.version_status(plugin, deadline)
+        end
         result[plugin.name] = {
           enabled = plugin.enabled,
           path = plugin.dir,
@@ -107,6 +111,8 @@ function M.setup(config)
           loaded = plugin.load_status or "not loaded",
           error = plugin.load_error,
           version = plugin.version,
+          version_matches = version_matches,
+          version_error = version_error,
           commit = git_result and git_result.stdout:gsub("%s+$", "") or nil,
         }
       end

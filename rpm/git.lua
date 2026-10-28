@@ -18,7 +18,7 @@ end
 ---@param dir string
 ---@return RexExecResult? result
 ---@return string? err
-local function checkout_version(plugin, dir, deadline)
+local function resolve_version(plugin, dir, deadline)
   local version = plugin.version
   local operator = version:sub(1, 1)
   if operator == "^" or operator == "~" then
@@ -73,11 +73,46 @@ local function checkout_version(plugin, dir, deadline)
       end
     end
   end
+  return version
+end
+
+local function checkout_version(plugin, dir, deadline)
+  local version, err = resolve_version(plugin, dir, deadline)
+  if not version then
+    return nil, err
+  end
   return timed_run(
     { "git", "checkout", "--detach", version, "--" },
     { cwd = dir, timeout = 5 },
     deadline
   )
+end
+
+local function version_status(plugin, deadline)
+  if not plugin.version then
+    return nil, nil
+  end
+  local ref, err = resolve_version(plugin, plugin.dir, deadline)
+  if not ref then
+    return nil, err
+  end
+  local target, target_err = timed_run(
+    { "git", "rev-parse", "--verify", ref .. "^{commit}" },
+    { cwd = plugin.dir, timeout = 2 },
+    deadline
+  )
+  if not target then
+    return nil, target_err
+  end
+  local head, head_err = timed_run(
+    { "git", "rev-parse", "--verify", "HEAD^{commit}" },
+    { cwd = plugin.dir, timeout = 2 },
+    deadline
+  )
+  if not head then
+    return nil, head_err
+  end
+  return head.stdout:gsub("%s+$", "") == target.stdout:gsub("%s+$", "")
 end
 
 ---@param plugin RpmPlugin
@@ -202,4 +237,4 @@ local function update(plugin, deadline)
   return "updated"
 end
 
-return { install = install, update = update }
+return { install = install, update = update, version_status = version_status }

@@ -46,7 +46,7 @@ For development or repositories that contain both Neovim and Rex code, specify a
 
 `path` checkouts are managed externally: install and update actions will not modify them. `main` is the Lua module name and defaults to the repository name.
 
-Use `rex do rpm_status` to inspect declared plugins, their load status, errors, paths, versions, and available Git commits. The status reports the current config load; it does not verify whether a checkout matches its declared version. Use `rex do rpm_update` to update all enabled managed plugins, or pass `plugin=owner/repo` to update one. Actions share a bounded time budget and can be retried if it is exhausted.
+Use `rex do rpm_status` to inspect declared plugins, their load status, errors, paths, versions, and available Git commits. The status reports the current config load and, for versioned managed plugins, compares the checkout with the locally resolved version. `version_matches = false` means an update is needed; `version_error` means RPM could not resolve or compare it. Status does not fetch new tags or branches. Use `rex do rpm_update` to update all enabled managed plugins, or pass `plugin=owner/repo` to update one. Actions share a bounded time budget and can be retried if it is exhausted.
 
 Set `enabled = false` on any plugin specification to skip loading it without removing the declaration or its files. Disabled plugins produce no missing-plugin warning and cannot be installed or updated through manager actions. Re-enable it by setting `enabled = true` (or removing the field), then run `rex config reload`.
 
