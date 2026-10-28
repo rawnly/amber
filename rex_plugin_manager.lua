@@ -23,6 +23,8 @@
 ---@field local_path boolean
 ---@field enabled boolean
 ---@field version? string
+---@field load_status? string
+---@field load_error? string
 
 ---@class RpmModule
 ---@field version string
@@ -76,14 +78,49 @@ function M.setup(config)
   end
 
   register_action("rpm_install", "Install Rex Plugins", install, by_name, plugins, true)
-  register_action("rpm_update", "Update Rex Plugin", update, by_name, plugins)
+  register_action("rpm_update", "Update Rex Plugins", update, by_name, plugins, true)
+  rex.action({
+    name = "rpm_status",
+    title = "Rex Plugin Status",
+    category = "Plugins",
+    run = function()
+      local result = {}
+      local deadline = os.time() + 23
+      for _, plugin in ipairs(plugins) do
+        local git_result
+        if
+          not plugin.local_path
+          and util.exists(plugin.dir .. "/.git/HEAD")
+          and os.time() < deadline
+        then
+          git_result = util.run(
+            { "git", "rev-parse", "HEAD" },
+            { cwd = plugin.dir, timeout = math.min(2, deadline - os.time()) }
+          )
+        end
+        result[plugin.name] = {
+          enabled = plugin.enabled,
+          path = plugin.dir,
+          local_path = plugin.local_path,
+          installed = plugin.local_path and util.exists(plugin.dir)
+            or util.exists(plugin.dir .. "/.git/HEAD"),
+          loaded = plugin.load_status or "not loaded",
+          error = plugin.load_error,
+          version = plugin.version,
+          commit = git_result and git_result.stdout:gsub("%s+$", "") or nil,
+        }
+      end
+      return result
+    end,
+  })
   for _, plugin in ipairs(plugins) do
     local ready = true
     if config.install ~= "manual" and plugin.enabled and not plugin.local_path then
       local status, err = install(plugin)
       if not status then
         ready = false
-        rex.log("error", "rpm: " .. plugin.name .. ": install failed: " .. tostring(err))
+        plugin.load_status, plugin.load_error = "error", "install failed: " .. tostring(err)
+        rex.log("error", "rpm: " .. plugin.name .. ": " .. plugin.load_error)
       end
     end
     if ready then

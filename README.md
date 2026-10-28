@@ -30,7 +30,7 @@ rex do rpm_install
 rex config reload
 ```
 
-Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Updates use `git pull --ff-only`; failures are reported without resetting local changes. `rex do rpm_install` attempts all enabled managed plugins sequentially and reports failures as an action error; `rex do rpm_install plugin=owner/repo` targets one. Rex actions have a time limit, so a bulk install may be interrupted; retry it or install plugins individually. Git authentication must work non-interactively; terminal prompts are disabled.
+Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Updates use `git pull --ff-only`; failures are reported without resetting local changes. `rex do rpm_install` attempts all enabled managed plugins sequentially and reports failures as an action error; `rex do rpm_install plugin=owner/repo` targets one. Rex actions have a time limit; RPM limits Git operation time and reports when its action budget is exhausted. Retry or install plugins individually. Git authentication must work non-interactively; terminal prompts are disabled.
 
 By default plugins live at `$XDG_DATA_HOME/rex/plugins/<owner>/<repo>`, or `~/.local/share/rex/plugins/<owner>/<repo>` if `XDG_DATA_HOME` is unset. Override with `root = "/absolute/path"` in `setup`; relative paths and `~` are not expanded. Only GitHub `owner/repo` shorthand is supported for fetching. Plugins load in declaration order; missing plugins and load errors are logged and do not stop other plugins loading.
 
@@ -45,6 +45,8 @@ For development or repositories that contain both Neovim and Rex code, specify a
 ```
 
 `path` checkouts are managed externally: install and update actions will not modify them. `main` is the Lua module name and defaults to the repository name.
+
+Use `rex do rpm_status` to inspect declared plugins, their load status, errors, paths, versions, and available Git commits. The status reports the current config load; it does not verify whether a checkout matches its declared version. Use `rex do rpm_update` to update all enabled managed plugins, or pass `plugin=owner/repo` to update one. Actions share a bounded time budget and can be retried if it is exhausted.
 
 Set `enabled = false` on any plugin specification to skip loading it without removing the declaration or its files. Disabled plugins produce no missing-plugin warning and cannot be installed or updated through manager actions. Re-enable it by setting `enabled = true` (or removing the field), then run `rex config reload`.
 

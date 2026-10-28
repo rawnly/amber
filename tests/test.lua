@@ -54,7 +54,10 @@ for _, call in ipairs(calls) do
   end
 end
 assert(cloned)
-assert(actions.rpm_install and actions.rpm_update)
+assert(actions.rpm_install and actions.rpm_update and actions.rpm_status)
+local status_report = actions.rpm_status.run({}, {})
+assert(status_report["alice/example"].loaded == "loaded")
+assert(status_report["bob/missing"].loaded == "error")
 assert(actions.rpm_install.run({}, { plugin = "alice/example" }).status == "already installed")
 assert(actions.rpm_update.run({}, { plugin = "alice/example" }).status == "updated")
 assert(calls[#calls].argv[1] == "git" and calls[#calls].opts.cwd == root .. "/alice/example")

@@ -80,16 +80,16 @@ end
 ---@param plugin RpmPlugin
 local function load_plugin(plugin)
   if not plugin.enabled then
+    plugin.load_status = "disabled"
     return
   end
 
   local rex_dir = plugin.dir .. "/rex/lua"
   local result, err = rex.exec({ "test", "-d", rex_dir })
   if not result then
-    rex.log(
-      "error",
-      "rpm: " .. plugin.name .. ": cannot inspect module directory: " .. tostring(err)
-    )
+    plugin.load_status, plugin.load_error =
+      "error", "cannot inspect module directory: " .. tostring(err)
+    rex.log("error", "rpm: " .. plugin.name .. ": " .. plugin.load_error)
     return
   end
   local lua_dir = result.ok and rex_dir or (plugin.dir .. "/lua")
@@ -98,10 +98,9 @@ local function load_plugin(plugin)
     not exists(lua_dir .. "/" .. relative .. ".lua")
     and not exists(lua_dir .. "/" .. relative .. "/init.lua")
   then
-    rex.log(
-      "warn",
-      "rpm: " .. plugin.name .. ": module " .. plugin.main .. " not found in " .. lua_dir
-    )
+    plugin.load_status, plugin.load_error =
+      "missing", "module " .. plugin.main .. " not found in " .. lua_dir
+    rex.log("warn", "rpm: " .. plugin.name .. ": " .. plugin.load_error)
     return
   end
 
@@ -115,7 +114,10 @@ local function load_plugin(plugin)
     module.setup(plugin.opts)
   end)
   if not ok then
-    rex.log("error", "rpm: " .. plugin.name .. ": " .. tostring(load_err))
+    plugin.load_status, plugin.load_error = "error", tostring(load_err)
+    rex.log("error", "rpm: " .. plugin.name .. ": " .. plugin.load_error)
+  else
+    plugin.load_status, plugin.load_error = "loaded", nil
   end
 end
 
