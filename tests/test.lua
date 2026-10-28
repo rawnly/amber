@@ -100,6 +100,15 @@ test("loads installed plugins without shadowing user modules", function(rpm, act
   assert(not pcall(actions.rpm_install.run, {}, {}))
 end)
 
+test("bulk results are keyed by plugin name, even when empty", function(rpm, actions)
+  rpm.setup({ root = root, install = "manual", plugins = {} })
+  local result = actions.rpm_install.run({}, {})
+  assert(type(result.plugins) == "table" and next(result.plugins) == nil)
+  rpm.setup({ root = root, install = "manual", plugins = { "alice/example" } })
+  result = actions.rpm_install.run({}, {})
+  assert(result.plugins["alice/example"].status == "already installed")
+end)
+
 test("manual mode does not clone", function(rpm, _, _, calls)
   rpm.setup({ root = root, install = "manual", plugins = { "bob/missing" } })
   assert(not called(calls, "git", "clone"))

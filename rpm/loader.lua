@@ -51,8 +51,7 @@ local function register_action(name, title, operation, plugins, ordered, all)
         for _, plugin in ipairs(ordered) do
           if plugin.enabled and not plugin.local_path then
             local status, err = operation(plugin, deadline)
-            results[#results + 1] =
-              { plugin = plugin.name, status = status or "failed", error = err }
+            results[plugin.name] = { status = status or "failed", error = err }
             if not status then
               failed = true
             end
@@ -60,9 +59,9 @@ local function register_action(name, title, operation, plugins, ordered, all)
         end
         if failed then
           local errors = {}
-          for _, result in ipairs(results) do
+          for plugin_name, result in pairs(results) do
             if result.error then
-              errors[#errors + 1] = result.plugin .. ": " .. result.error
+              errors[#errors + 1] = plugin_name .. ": " .. result.error
             end
           end
           error("plugin operation failed: " .. table.concat(errors, "; "), 0)
