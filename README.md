@@ -113,6 +113,10 @@ return M
 
 RPM installs a Lua module searcher scoped to each plugin's `main` namespace, requires the `main` module, and calls `setup(opts)` without adding unrelated plugin files to `package.path`. Users can subsequently call its public API with `require("example")`. Lua's module namespace and `package.loaded` cache are shared: choose a unique module name. RPM rejects duplicate enabled `main` names but cannot prevent collisions with unrelated Lua modules. `setup` runs on every Rex config load and receives the declaration's `opts` table (empty by default). Register actions and bindings there, not later inside an action. Metadata is optional and informational. Plugins execute arbitrary Lua with the Rex server's privileges; only install repositories you trust. Rex config checks also load plugins, so plugin setup should avoid side effects beyond configuration.
 
+## Plugin authoring skill
+
+The repository includes an [agent skill](.agents/skills/rex-plugin-authoring/SKILL.md) for building and testing RPM-compatible plugins. Agents that discover project skills can use it when working in this repository. To use it while working in a separate plugin repository, copy the `rex-plugin-authoring` directory into that repository's `.agents/skills/` directory or your agent's user-level skills directory. Reload the agent's skills if needed.
+
 ## Versions
 
 Specify a Git tag or commit, or a simple semver range:
