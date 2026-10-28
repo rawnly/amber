@@ -1,0 +1,13 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: checks
+      run: mise run check
+    - name: validate lefthook config
+      glob: lefthook.yml
+      run: mise exec -- lefthook validate
+
+commit-msg:
+  jobs:
+    - name: check commit message spelling
+      run: git stripspace --strip-comments < {1} | mise exec -- typos --no-check-filenames -

@@ -4,7 +4,15 @@ A small GitHub plugin manager for Rex. Plugins are Lua modules installed on the 
 
 ## Installation
 
-Clone RPM on the Rex server:
+On the Unix-like machine running the Rex server (macOS or Linux), install RPM with Git and a POSIX shell:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rawnly/rpm/main/install.sh | sh
+```
+
+To inspect the installer before running it, download `install.sh` from the repository and run `sh install.sh` instead. It clones RPM to `~/.local/share/rex/rpm` without changing your Rex config or installing plugins. It refuses to overwrite an existing installation. To choose a different absolute path, download the script and run `RPM_INSTALL_DIR=/absolute/path/to/rpm sh install.sh`.
+
+Alternatively, clone RPM yourself:
 
 ```sh
 mkdir -p "$HOME/.local/share/rex"
@@ -87,15 +95,18 @@ The annotations describe RPM's options; they do not change runtime behavior. The
 
 ## Development
 
-Install [mise](https://mise.jdx.dev/), then install the pinned tools:
+Install [mise](https://mise.jdx.dev/), then install the configured tools and Git hooks:
 
 ```sh
 mise trust
 mise install
+mise exec -- lefthook install
 mise run check
 ```
 
-`mise run test` runs the Lua 5.1 tests using a temporary fixture. `mise run fmt` formats the Lua files with StyLua, and `mise run fmt:check` checks formatting without changing files. `mise run types` runs Lua Language Server diagnostics. `mise run check` runs the tests, formatting and type checks, and validates Lua syntax. Rex is not required for these tests.
+`mise run test` runs the Lua 5.1 and installer tests using temporary fixtures. `mise run fmt` formats Lua and shell files, `mise run fmt:check` checks formatting without changes, `mise run lint` runs ShellCheck, and `mise run types` runs Lua Language Server diagnostics. `mise run check` runs those checks and validates Lua syntax. Rex is not required for these tests.
+
+Once installed, Lefthook runs the full check against the working tree before each commit and validates its configuration when `lefthook.yml` is staged. The `commit-msg` hook checks the commit message with `typos` after stripping Git's comments. CI runs the same `mise run check`.
 
 Lua Language Server reads `.luarc.json` and the editor-only Rex API declarations in `types/rex.lua`. Plugin specifications and manager functions use LuaLS annotations for completion and diagnostics; these types do not enforce checks at runtime. The Rex declarations cover only the API used by this project.
 
