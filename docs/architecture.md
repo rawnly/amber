@@ -46,7 +46,7 @@ Loading checks the module file, not the Git checkout state or whether its curren
 
 ## Installation and updates
 
-The install action accepts an optional `plugin` name; without one it processes enabled managed plugins sequentially and returns per-plugin results. The update action requires a name. Named actions reject unknown, disabled, and externally managed plugins. Bulk installs can exceed Rex's action deadline; retry or install individually. Actions return a reminder to reload; command failures, including failures in bulk installs, become action errors.
+The install action accepts an optional `plugin` name; without one it processes enabled managed plugins sequentially and returns per-plugin results. The update action also accepts an optional name and processes all enabled managed plugins when omitted. Named actions reject unknown, disabled, and externally managed plugins. Actions share a 23-second budget for Git operations, leaving time before Rex's 30-second action deadline for cleanup. Exhausted or timed-out operations return an error; retry or target plugins individually. Actions return a reminder to reload; command failures, including failures in bulk installs, become action errors.
 
 For installation, RPM:
 
@@ -63,7 +63,7 @@ For updates, an unversioned checkout uses `git pull --ff-only`. A versioned chec
 
 ## Version resolution
 
-Without `version`, Git's default branch is used. An exact version is passed to Git as a ref. `^x.y.z` and `~x.y.z` select the highest matching stable `x.y.z` or `vx.y.z` tag among locally available tags, applying caret or tilde bounds. Updates fetch tags before resolving again. Prerelease tags and broader lazy.nvim semver expressions are not supported. There is no lockfile, so a range can resolve to a newer tag on a later update or fresh install.
+Without `version`, Git's default branch is used. Exact tags take precedence over remote branch names, and branch names resolve to `origin/<branch>`. `rpm_status` compares the checked-out commit with the locally resolved version without fetching. `^x.y.z` and `~x.y.z` select the highest matching stable `x.y.z` or `vx.y.z` tag among locally available tags, applying caret or tilde bounds. Updates fetch tags before resolving again. Prerelease tags and broader lazy.nvim semver expressions are not supported. There is no lockfile, so a range can resolve to a newer tag on a later update or fresh install.
 
 ## Development and verification
 
