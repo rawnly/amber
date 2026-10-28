@@ -92,14 +92,7 @@ local function load_plugin(plugin)
   end
 
   local rex_dir = plugin.dir .. "/rex/lua"
-  local result, err = rex.exec({ "test", "-d", rex_dir })
-  if not result then
-    plugin.load_status, plugin.load_error =
-      "error", "cannot inspect module directory: " .. tostring(err)
-    rex.log("error", "rpm: " .. plugin.name .. ": " .. plugin.load_error)
-    return
-  end
-  local lua_dir = result.ok and rex_dir or (plugin.dir .. "/lua")
+  local lua_dir = exists(rex_dir) and rex_dir or (plugin.dir .. "/lua")
   local relative = plugin.main:gsub("%.", "/")
   if
     not exists(lua_dir .. "/" .. relative .. ".lua")
