@@ -10,7 +10,8 @@
 
 ---@class RpmConfig
 ---@field root? string Absolute directory for managed checkouts.
----@field install? "auto"|"manual" Installation behavior; defaults to auto.
+---@field install? "manual" Installation is always manual.
+---@field lockfile? string Absolute lockfile path; defaults to rpm-lock.json in the Rex config directory.
 ---@field plugins? (string|RpmPluginSpec)[] Plugins in load order.
 
 ---@class RpmPlugin

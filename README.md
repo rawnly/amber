@@ -27,12 +27,11 @@ rpm.setup({
 })
 ```
 
-If you cloned RPM elsewhere, change the path accordingly. The Rex-side module must be published to the smart-splits repository before Git installation can use it; until then, use the local checkout example below. By default, RPM installs missing enabled managed plugins automatically during configuration loading, including during `rex config check`. This performs network and filesystem operations and can slow down loading. Set `install = "manual"` in `rpm.setup` to disable automatic installs; then use `rex do rpm_install` and reload. Once published, run:
+If you cloned RPM elsewhere, change the path accordingly. The Rex-side module must be published to the smart-splits repository before Git installation can use it; until then, use the local checkout example below. RPM never installs plugins during configuration loading or `rex config check`. Install them explicitly and reload: Once published, run:
 
 ```sh
 rex config check
 rex config reload
-# To retry missing installs later:
 rex do rpm_install
 rex config reload
 ```
@@ -53,7 +52,7 @@ For development or repositories that contain both Neovim and Rex code, specify a
 
 `path` checkouts are managed externally: install and update actions will not modify them. `main` is the Lua module name and defaults to the repository name, with a trailing `.rex` removed. Dots in the module name denote Lua module directories.
 
-Use `rex do rpm_status` to inspect declared plugins, their load status, errors, paths, versions, and available Git commits. RPM also writes load failures with `rex.log`; log locations depend on server mode (see [Rex shared-server logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs)). The status reports the current config load and, for versioned managed plugins, compares the checkout with the locally resolved version. `version_matches = false` means an update is needed; `version_error` means RPM could not resolve or compare it. Status does not fetch new tags or branches. Use `rex do rpm_update` to update all enabled managed plugins, or pass `plugin=owner/repo` to update one. Actions share a bounded time budget and can be retried if it is exhausted.
+Use `rex do rpm_status` to inspect declared plugins, their load status, errors, paths, versions, and available Git commits. RPM also writes load failures with `rex.log`; log locations depend on server mode (see [Rex shared-server logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs)). The status reports the current config load, the locked commit and whether the checkout matches it, and for versioned managed plugins compares the checkout with the locally resolved version. `version_matches = false` means an update is needed; `version_error` means RPM could not resolve or compare it. Status does not fetch new tags or branches. Use `rex do rpm_update` to update all enabled managed plugins, or pass `plugin=owner/repo` to update one. Actions share a bounded time budget and can be retried if it is exhausted.
 
 Set `enabled = false` on any plugin specification to skip loading it without removing the declaration or its files. Disabled plugins produce no missing-plugin warning and cannot be installed or updated through manager actions. Re-enable it by setting `enabled = true` (or removing the field), then run `rex config reload`.
 
@@ -136,9 +135,25 @@ Specify a Git tag or commit, or a simple semver range:
 { "carol/rex-tools", version = "~1.2.0" }, -- latest stable 1.2.x tag
 ```
 
-For `^` and `~`, the manager selects the highest matching stable `1.2.3` or `v1.2.3` Git tag at install or update. Three numeric components are required; prereleases, wildcard ranges, and other lazy.nvim version expressions are not supported. Caret ranges follow semver's special rules for major version zero. Exact versions are Git refs (use the tag's `v` prefix if present). Tags take precedence over remote branches of the same name; branch names resolve to the fetched `origin` branch. Versions check out detached; updates fetch tags and re-resolve the constraint. They do not change an existing checkout until `rpm_update` is run. Versions are not supported for local `path` plugins. There is no lockfile, so ranges may resolve differently over time.
+For `^` and `~`, the manager selects the highest matching stable `1.2.3` or `v1.2.3` Git tag at install or update. Three numeric components are required; prereleases, wildcard ranges, and other lazy.nvim version expressions are not supported. Caret ranges follow semver's special rules for major version zero. Exact versions are Git refs (use the tag's `v` prefix if present). Tags take precedence over remote branches of the same name; branch names resolve to the fetched `origin` branch. Versions check out detached; updates fetch tags and re-resolve the constraint. They do not change an existing checkout until `rpm_update` is run. Versions are not supported for local `path` plugins.
 
-This first version does not provide lockfiles, dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory or a sibling `.rpm-lock` directory. They are not treated as installed plugins. After confirming no install is still running, remove a stale lock to retry.
+This first version does not provide dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory or a sibling `.rpm-lock` directory. They are not treated as installed plugins. After confirming no install is still running, remove a stale lock to retry.
+
+## Lockfile
+
+RPM records exact Git commits in `rpm-lock.json` alongside Rex's config file (`$XDG_CONFIG_HOME/rex/rpm-lock.json`, or `~/.config/rex/rpm-lock.json` by default). Set `lockfile = "/absolute/path/rpm-lock.json"` in `rpm.setup` to override it; the path is on the Rex server. The lockfile is JSON and may be committed alongside your config.
+
+`rex do rpm_install` uses an existing locked commit for missing plugins. If a plugin has no entry, a successful install records its commit; running install on an already installed checkout records its current commit without changing it. Existing lock entries are never replaced by install. `rex do rpm_update` explicitly resolves and records a new commit. Changing `version` alone does not update the lock; RPM warns until you run update.
+
+```sh
+rex do rpm_restore                          # restore all enabled managed plugins
+rex do rpm_restore plugin=owner/repository   # restore one
+rex config reload
+```
+
+Restore refuses checkouts with tracked or untracked changes. It can clone a missing checkout, but fails if Git cannot obtain the locked commit; it does not silently choose another. Restoring checks out a detached commit. For an unversioned plugin, a later update fetches the origin default branch and advances only if the checkout is clean and can be fast-forwarded. Local `path` plugins are never locked or restored; disabled and removed plugins' entries are preserved. RPM does not automatically prune entries.
+
+Lockfile writes are serialized with a sibling `.lock` directory and written via a temporary file and rename. A killed process may leave the guard behind; after confirming no RPM action is running, remove `<lockfile>.lock` to retry. A corrupt lockfile causes actions to fail rather than overwriting it. If Git changes a checkout but writing the lockfile fails, RPM reports the error; inspect the checkout and lockfile before retrying. `rex config check` and config reload can read the lockfile to report drift, but do not create or modify it.
 
 ## Inspiration
 

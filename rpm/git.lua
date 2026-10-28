@@ -118,7 +118,7 @@ end
 ---@param plugin RpmPlugin
 ---@return string? status
 ---@return string? err
-local function install_unlocked(plugin, deadline)
+local function install_unlocked(plugin, deadline, locked_commit)
   if plugin.local_path then
     return nil, "local plugins are managed outside rpm"
   end
@@ -146,8 +146,17 @@ local function install_unlocked(plugin, deadline)
     run({ "rm", "-rf", "--", dir })
     return nil, clone_err
   end
-  if plugin.version then
-    local checked, checkout_err = checkout_version(plugin, dir, deadline)
+  if plugin.version or locked_commit then
+    local checked, checkout_err
+    if locked_commit then
+      checked, checkout_err = timed_run(
+        { "git", "checkout", "--detach", locked_commit, "--" },
+        { cwd = dir, timeout = 5 },
+        deadline
+      )
+    else
+      checked, checkout_err = checkout_version(plugin, dir, deadline)
+    end
     if not checked then
       run({ "rm", "-rf", "--", dir })
       return nil, checkout_err
@@ -168,7 +177,7 @@ end
 ---@param plugin RpmPlugin
 ---@return string? status
 ---@return string? err
-local function install(plugin, deadline)
+local function install(plugin, deadline, locked_commit)
   if deadline and os.time() >= deadline then
     return nil, "action time budget exhausted; retry remaining plugins"
   end
@@ -187,7 +196,7 @@ local function install(plugin, deadline)
   if not locked then
     return nil, "installation locked: " .. lock
   end
-  local ok, status, err = pcall(install_unlocked, plugin, deadline)
+  local ok, status, err = pcall(install_unlocked, plugin, deadline, locked_commit)
   local removed, remove_err = run({ "rmdir", "--", lock })
   if not removed then
     return nil, "cannot release install lock " .. lock .. ": " .. tostring(remove_err)
@@ -226,15 +235,126 @@ local function update(plugin, deadline)
     end
     return "updated"
   end
-  local result, err = timed_run({ "git", "pull", "--ff-only" }, {
+  local branch, branch_err = rex.exec({ "git", "symbolic-ref", "--quiet", "HEAD" }, {
     cwd = plugin.dir,
-    timeout = 20,
-    env = { GIT_TERMINAL_PROMPT = "0" },
-  }, deadline)
-  if not result then
-    return nil, err
+    timeout = 2,
+  })
+  if not branch then
+    return nil, branch_err
+  end
+  if not branch.ok and branch.code ~= 1 then
+    return nil, "cannot determine checkout branch"
+  end
+  if not branch.ok then
+    local clean, clean_err = timed_run(
+      { "git", "status", "--porcelain", "--untracked-files=normal" },
+      { cwd = plugin.dir, timeout = 5 },
+      deadline
+    )
+    if not clean then
+      return nil, clean_err
+    end
+    if clean.stdout ~= "" then
+      return nil, "working tree is not clean; refusing to update detached checkout"
+    end
+    local fetched, fetch_err = timed_run(
+      { "git", "fetch", "origin" },
+      { cwd = plugin.dir, timeout = 20, env = { GIT_TERMINAL_PROMPT = "0" } },
+      deadline
+    )
+    if not fetched then
+      return nil, fetch_err
+    end
+    local default, default_err = timed_run(
+      { "git", "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD" },
+      { cwd = plugin.dir, timeout = 2 },
+      deadline
+    )
+    if not default then
+      return nil, "cannot determine origin default branch: " .. tostring(default_err)
+    end
+    local ref = default.stdout:gsub("%s+$", "")
+    if not ref:match("^refs/remotes/origin/") then
+      return nil, "invalid origin default branch"
+    end
+    local ancestor, ancestor_err = timed_run(
+      { "git", "merge-base", "--is-ancestor", "HEAD", ref },
+      { cwd = plugin.dir, timeout = 5 },
+      deadline
+    )
+    if not ancestor then
+      return nil, "cannot fast-forward detached checkout: " .. tostring(ancestor_err)
+    end
+    local result, err = timed_run(
+      { "git", "checkout", "--detach", ref, "--" },
+      { cwd = plugin.dir, timeout = 5 },
+      deadline
+    )
+    if not result then
+      return nil, err
+    end
+  else
+    local result, err = timed_run({ "git", "pull", "--ff-only" }, {
+      cwd = plugin.dir,
+      timeout = 20,
+      env = { GIT_TERMINAL_PROMPT = "0" },
+    }, deadline)
+    if not result then
+      return nil, err
+    end
   end
   return "updated"
 end
 
-return { install = install, update = update, version_status = version_status }
+local function commit(plugin, deadline)
+  local result, err = timed_run(
+    { "git", "rev-parse", "--verify", "HEAD^{commit}" },
+    { cwd = plugin.dir, timeout = 2 },
+    deadline
+  )
+  if not result then
+    return nil, err
+  end
+  local hash = result.stdout:gsub("%s+$", "")
+  if not hash:match("^[0-9a-f]+$") or (#hash ~= 40 and #hash ~= 64) then
+    return nil, "invalid Git commit"
+  end
+  return hash
+end
+
+local function restore(plugin, deadline, hash)
+  if plugin.local_path then
+    return nil, "local plugins are managed outside rpm"
+  end
+  if not exists(plugin.dir .. "/.git/HEAD") then
+    return install(plugin, deadline, hash)
+  end
+  local status, err = timed_run(
+    { "git", "status", "--porcelain", "--untracked-files=normal" },
+    { cwd = plugin.dir, timeout = 5 },
+    deadline
+  )
+  if not status then
+    return nil, err
+  end
+  if status.stdout ~= "" then
+    return nil, "working tree is not clean; refusing to restore"
+  end
+  local result, checkout_err = timed_run(
+    { "git", "checkout", "--detach", hash, "--" },
+    { cwd = plugin.dir, timeout = 5 },
+    deadline
+  )
+  if not result then
+    return nil, checkout_err
+  end
+  return "restored"
+end
+
+return {
+  install = install,
+  update = update,
+  restore = restore,
+  commit = commit,
+  version_status = version_status,
+}

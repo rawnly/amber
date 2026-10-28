@@ -8,6 +8,7 @@ Rex Plugin Manager (RPM) is a Lua 5.1 plugin manager loaded by the Rex server's 
 - `rpm/spec.lua`: plugin spec validation and normalization.
 - `rpm/loader.lua`: Rex action registration and Lua module loading.
 - `rpm/git.lua`: installation, updates, and version resolution.
+- `rpm/lock.lua`: validated lockfile reads and serialized atomic writes.
 - `rpm/util.lua`: shared command and filesystem helpers.
 - `types/rex.lua`: partial editor-only Rex API declarations.
 - `tests/test.lua` and `scripts/test.sh`: tests and temporary fixtures.
@@ -20,11 +21,12 @@ Write idiomatic Lua 5.1, use local functions and descriptive snake_case names, a
 
 ## Design constraints
 
-- Config load, reload, and `rex config check` execute plugin setup and by default install missing enabled managed plugins. This can perform network and filesystem operations, including during checks; `install = "manual"` opts out. Do not silently add updates to config loading.
+- Config load, reload, and `rex config check` execute plugin setup but must not install or update plugins. Installation is explicitly requested through `rpm_install`.
 - Rex runs config on the server. Use `rex.exec` with argument arrays for subprocesses; `os.execute` and `io.popen` are unavailable in Rex. Check process-start errors and nonzero exit status.
 - Plugin setup registers actions and bindings at config load; operations requiring a live session or client belong in callbacks. Respect Rex action deadlines.
 - Prefer `rex/lua/` when present, otherwise `lua/`; do not silently fall back to `lua/` when `rex/lua/` exists. Keep Lua module-name collisions and `package.loaded` semantics in mind.
 - Local `path` plugins are externally managed. Disabled plugins are not loaded or managed. Validate untrusted names and paths and never overwrite user changes during Git operations.
+- Lock entries are authoritative for manual installs and restores until an explicit update. Preserve unrelated entries, reject malformed lockfiles, and never restore a dirty checkout.
 - Plugins are trusted Lua code, not sandboxed. Do not imply otherwise.
 - Update tests, type annotations, and documentation when changing the public contract. Avoid introducing compatibility guarantees or features absent from the implementation.
 
