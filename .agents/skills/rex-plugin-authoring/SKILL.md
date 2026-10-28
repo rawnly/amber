@@ -47,10 +47,10 @@ rpm.setup({
 })
 ```
 
-For development, add `path = "/absolute/path/to/example-rex"` to that spec. Local paths are server-side and externally managed; RPM does not install or update them, and `version` cannot be combined with `path`. Managed repositories must be published to GitHub before a fresh install can fetch them. By default RPM installs missing enabled managed plugins during config load, including `rex config check`; `install = "manual"` disables that behavior. Changes made through install/update actions take effect on config reload. Do not promise dependency resolution, lazy loading, or other features RPM does not provide.
+For development, add `path = "/absolute/path/to/example-rex"` to that spec. Local paths are server-side and externally managed; RPM does not install or update them, and `version` cannot be combined with `path`. Managed repositories must be published to GitHub before a fresh install can fetch them. RPM never installs during config load or `rex config check`: after loading the config, run `rex do rpm_install`, then `rex config reload`. Installs record exact commits in `rpm-lock.json` and honor existing lock entries; `rpm_update` advances them and `rpm_restore` restores them. Changes made through these actions take effect on config reload. Do not promise dependency resolution, lazy loading, or other features RPM does not provide.
 
 ## Verify
 
 - Test the entry point and nested module resolution, option defaults and overrides, and registration on repeated setup/config loads. Stub Rex APIs for unit tests, and state what stubs cannot prove.
-- When Rex is available, run `rex config check` with a temporary configuration using an absolute local plugin path and `install = "manual"`; test live-session behavior separately where feasible. Avoid modifying the user's active config or triggering network installs unintentionally.
+- When Rex is available, run `rex config check` with a temporary configuration using an absolute local plugin path; test live-session behavior separately where feasible. Avoid modifying the user's active config or triggering network installs unintentionally.
 - Check the plugin's documented module name and layout against the actual files. Explain how to call any public API with `require(main)` and document options, actions, and limitations. Report checks performed and any live Rex behavior not verified.
