@@ -45,6 +45,18 @@ For development or repositories that contain both Neovim and Rex code, specify a
 
 Set `enabled = false` on any plugin specification to skip loading it without removing the declaration or its files. Disabled plugins produce no missing-plugin warning and cannot be installed or updated through manager actions. Re-enable it by setting `enabled = true` (or removing the field), then run `rex config reload`.
 
+## Development
+
+Install [mise](https://mise.jdx.dev/), then install the pinned tools:
+
+```sh
+mise trust
+mise install
+mise run check
+```
+
+`mise run test` runs the Lua 5.1 tests using a temporary fixture. `mise run fmt` formats the Lua files with StyLua, and `mise run fmt:check` checks formatting without changing files. `mise run check` runs both checks and validates Lua syntax. Rex is not required for these tests.
+
 ## Plugin contract
 
 A repository must contain an `init.lua` at its root:
@@ -69,4 +81,16 @@ return M
 
 `setup` runs on every Rex config load and receives the declaration's `opts` table (empty by default). Register actions and bindings there, not later inside an action. Metadata is optional and informational. Plugins execute arbitrary Lua with the Rex server's privileges; only install repositories you trust. Rex config checks also load plugins, so plugin setup should avoid side effects beyond configuration.
 
-This first version does not provide pinning, lockfiles, dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory; it is not treated as an installed plugin.
+## Versions
+
+Specify a Git tag or commit, or a simple semver range:
+
+```lua
+{ "alice/rex-projects", version = "v1.2.0" }, -- exact Git tag
+{ "bob/rex-workspaces", version = "^1.2.0" }, -- latest stable 1.x tag
+{ "carol/rex-tools", version = "~1.2.0" }, -- latest stable 1.2.x tag
+```
+
+For `^` and `~`, the manager selects the highest matching stable `1.2.3` or `v1.2.3` Git tag at install or update. Three numeric components are required; prereleases, wildcard ranges, and other lazy.nvim version expressions are not supported. Caret ranges follow semver's special rules for major version zero. Exact versions are Git refs (use the tag's `v` prefix if present). Versions check out detached; updates fetch tags and re-resolve the constraint. They do not change an existing checkout until `rpm_update` is run. Versions are not supported for local `path` plugins. There is no lockfile, so ranges may resolve differently over time.
+
+This first version does not provide lockfiles, dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory; it is not treated as an installed plugin.

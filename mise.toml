@@ -1,0 +1,20 @@
+[tools]
+lua = "5.1.5"
+stylua = "2.3.1"
+
+[tasks.test]
+description = "Run Lua 5.1 tests"
+run = "sh scripts/test.sh"
+
+[tasks.fmt]
+description = "Format Lua files"
+run = "stylua rex_plugin_manager.lua tests"
+
+[tasks."fmt:check"]
+description = "Check Lua formatting"
+run = "stylua --check rex_plugin_manager.lua tests"
+
+[tasks.check]
+description = "Check formatting, Lua syntax, and tests"
+depends = ["fmt:check", "test"]
+run = "luac -p rex_plugin_manager.lua tests/test.lua"
