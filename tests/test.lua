@@ -7,6 +7,7 @@ end
 
 local function test(name, fn)
   local actions, logs, calls = {}, {}, {}
+  ---@type table<string, any>
   local behavior = { tags = "v1.2.0\nv1.4.0\nv2.0.0\n", mismatch = false }
   package.path = root .. "/?.lua;" .. original_path
   for i = #package.loaders, 1, -1 do
@@ -40,7 +41,20 @@ local function test(name, fn)
         return { ok = true, stdout = root .. "/temporary\n", stderr = "", code = 0 }
       end
       if argv[1] == "git" and argv[2] == "clone" then
-        return { ok = false, stdout = "", stderr = "clone failed", code = 1 }
+        if behavior.clone_success then
+          return { ok = true, stdout = "", stderr = "", code = 0 }
+        end
+        return {
+          ok = false,
+          stdout = "",
+          stderr = "clone failed",
+          code = 1,
+          timed_out = behavior.clone_timeout,
+        }
+      end
+      if argv[1] == "mv" and behavior.clone_success then
+        local ok, err = os.rename(argv[4], argv[5])
+        return { ok = ok ~= nil, stdout = "", stderr = err or "", code = ok and 0 or 1 }
       end
       if argv[1] == "git" and argv[2] == "tag" then
         return { ok = true, stdout = behavior.tags, stderr = "", code = 0 }
@@ -149,6 +163,22 @@ test(
     assert(checkout and checkout.argv[4] == "v1.4.0")
   end
 )
+
+test("installs a missing plugin and publishes its checkout", function(rpm, actions, _, _, behavior)
+  behavior.clone_success = true
+  rpm.setup({ root = root, install = "manual", plugins = { "bob/new" } })
+  assert(actions.rpm_install.run({}, { plugin = "bob/new" }).status == "installed")
+  local head = assert(io.open(root .. "/bob/new/.git/HEAD", "r"))
+  head:close()
+end)
+
+test("reports clone timeouts and cleans up", function(rpm, actions, _, calls, behavior)
+  behavior.clone_timeout = true
+  rpm.setup({ root = root, install = "manual", plugins = { "bob/missing" } })
+  local ok, err = pcall(actions.rpm_install.run, {}, { plugin = "bob/missing" })
+  assert(not ok and tostring(err):match("timed out"))
+  assert(called(calls, "rm", "-rf"))
+end)
 
 test("rejects expired operation budgets", function()
   local git = assert(loadfile("rpm/git.lua"))(dofile("rpm/util.lua"))
