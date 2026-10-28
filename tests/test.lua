@@ -102,6 +102,8 @@ rpm.setup({ root = root, install = "manual", plugins = { "alice/example", "bob/e
 assert(logs[#logs][2]:match("duplicate"))
 rpm.setup({ root = root, install = "manual", plugins = { { "alice/example", entry = "init.lua" } } })
 assert(logs[#logs][2]:match("unknown plugin option"))
+rpm.setup({ root = root, install = "manual", plugins = { { "alice/example", verison = "v1" } } })
+assert(logs[#logs][2]:match("did you mean version"))
 local git = assert(loadfile("rpm/git.lua"))(dofile("rpm/util.lua"))
 local status, deadline_error = git.install({ local_path = false }, os.time() - 1)
 assert(not status and deadline_error:match("time budget exhausted"))

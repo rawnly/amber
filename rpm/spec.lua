@@ -1,3 +1,28 @@
+local function closest_option(key, options)
+  if type(key) ~= "string" then
+    return nil
+  end
+  local best, distance
+  for _, option in ipairs(options) do
+    local previous = {}
+    for i = 0, #option do
+      previous[i] = i
+    end
+    for i = 1, #key do
+      local current = { [0] = i }
+      for j = 1, #option do
+        local cost = key:sub(i, i) == option:sub(j, j) and 0 or 1
+        current[j] = math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost)
+      end
+      previous = current
+    end
+    if not distance or previous[#option] < distance then
+      best, distance = option, previous[#option]
+    end
+  end
+  return distance <= 2 and best or nil
+end
+
 ---@param spec string|RpmPluginSpec
 ---@param root string
 ---@return RpmPlugin
@@ -9,17 +34,24 @@ local function parse(spec, root)
     type(spec) == "table" and type(spec[1]) == "string",
     "plugin must be an owner/repository string or table"
   )
+  local options = { "opts", "enabled", "path", "main", "version" }
   local allowed =
     { [1] = true, opts = true, enabled = true, path = true, main = true, version = true }
   for key in pairs(spec) do
-    assert(
-      allowed[key],
-      "unknown plugin option "
-        .. tostring(key)
-        .. " in "
-        .. spec[1]
-        .. "; allowed: opts, enabled, path, main, version"
-    )
+    if not allowed[key] then
+      local suggestion = closest_option(key, options)
+      error(
+        "unknown plugin option "
+          .. tostring(key)
+          .. " in "
+          .. spec[1]
+          .. (
+            suggestion and "; did you mean " .. suggestion .. "?"
+            or "; allowed: " .. table.concat(options, ", ")
+          ),
+        0
+      )
+    end
   end
   local owner, repo = spec[1]:match("^([%w_.-]+)/([%w_.-]+)$")
   assert(
