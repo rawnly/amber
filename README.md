@@ -19,7 +19,7 @@ mkdir -p "$HOME/.local/share/rex"
 git clone https://github.com/rawnly/rpm.git "$HOME/.local/share/rex/rpm"
 ```
 
-Then load it from your Rex config (`~/.config/rex/init.lua` by default). This example uses [smart-splits-backend-rex](https://github.com/rawnly/smart-splits-backend-rex), which connects Neovim's smart-splits with Rex pane navigation:
+Then load it from your Rex config (`~/.config/rex/init.lua` by default). This example installs the Rex-side actions from [smart-splits-backend-rex](https://github.com/rawnly/smart-splits-backend-rex). Using them with Neovim also requires the Neovim plugin and separate Rex key bindings; see the backend's README.
 
 ```lua
 local rpm = dofile(os.getenv("HOME") .. "/.local/share/rex/rpm/rex_plugin_manager.lua")
@@ -35,7 +35,7 @@ rpm.setup({
 })
 ```
 
-If you cloned RPM elsewhere, change the path accordingly. The Rex-side module must be published to the smart-splits repository before Git installation can use it; until then, use the local checkout example below. RPM never installs plugins during configuration loading or `rex config check`. Install them explicitly and reload: Once published, run:
+If you cloned RPM elsewhere, change the path accordingly. RPM does not install plugins during configuration loading or `rex config check`. Check and reload the config to register RPM's actions, install the plugins, then reload again to load them:
 
 ```sh
 rex config check
@@ -44,7 +44,7 @@ rex do rpm_install
 rex config reload
 ```
 
-Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Unversioned updates use `git pull --ff-only`; versioned updates fetch and resolve the configured version. Failures are reported without resetting local changes. `rex do rpm_install` attempts all enabled managed plugins sequentially and reports failures as an action error; `rex do rpm_install plugin=owner/repo` targets one. Rex actions have a time limit; RPM limits Git operation time and reports when its action budget is exhausted. Retry or install plugins individually. Git authentication must work non-interactively; terminal prompts are disabled.
+Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Unversioned updates on a branch use `git pull --ff-only`; versioned updates fetch and resolve the configured version. Failures are reported without resetting local changes. `rex do rpm_install` attempts all enabled managed plugins sequentially and reports failures as an action error; `rex do rpm_install plugin=owner/repo` targets one. Rex actions have a time limit; RPM limits Git operation time and reports when its action budget is exhausted. Retry or install plugins individually. Git authentication must work non-interactively; terminal prompts are disabled.
 
 By default plugins live at `$XDG_DATA_HOME/rex/plugins/<owner>/<repo>`, or `~/.local/share/rex/plugins/<owner>/<repo>` if `XDG_DATA_HOME` is unset. Override with `root = "/absolute/path"` in `setup`; relative paths and `~` are not expanded. Only GitHub `owner/repo` shorthand is supported for fetching. Plugins load in declaration order; missing plugins and load errors are logged and do not stop other plugins loading.
 
@@ -64,35 +64,6 @@ Use `rex do rpm_status` to inspect declared plugins, their load status, errors, 
 
 Set `enabled = false` on any plugin specification to skip loading it without removing the declaration or its files. Disabled plugins produce no missing-plugin warning and cannot be installed or updated through manager actions. Re-enable it by setting `enabled = true` (or removing the field), then run `rex config reload`.
 
-## Editor completion
-
-For completion and diagnostics in your Rex `init.lua`, configure [Lua Language Server](https://luals.github.io/) in your editor. Add a `.luarc.json` to your Rex config workspace (typically `~/.config/rex/`):
-
-```json
-{
-  "runtime.version": "Lua 5.1",
-  "workspace.library": ["/absolute/path/to/rex-plugin-manager/types"],
-  "diagnostics.globals": ["rex"]
-}
-```
-
-Replace the library path with the `types` directory in your manager checkout on the **editor's** machine. If you already have a `.luarc.json`, merge these settings into it. Open the Rex config directory as the editor workspace so Lua Language Server reads the file.
-
-Because `dofile` uses a runtime path, annotate its result in `init.lua`:
-
-```lua
----@type RpmModule
-local rpm = dofile("/absolute/path/to/rex-plugin-manager/rex_plugin_manager.lua")
-
-rpm.setup({
-  plugins = {
-    { "rawnly/smart-splits-backend-rex", main = "smart-splits-rex", enabled = true },
-  },
-})
-```
-
-The annotations describe RPM's options; they do not change runtime behavior. The bundled `types/rex.lua` declarations cover only the Rex API used by RPM, not the complete Rex API. This external-workspace setup has not yet been verified in an editor.
-
 ## Development
 
 Install [mise](https://mise.jdx.dev/), then install the configured tools and Git hooks:
@@ -107,8 +78,6 @@ mise run check
 `mise run test` runs the Lua 5.1 and installer tests using temporary fixtures. `mise run fmt` formats Lua and shell files, `mise run fmt:check` checks formatting without changes, `mise run lint` runs ShellCheck, and `mise run types` runs Lua Language Server diagnostics. `mise run check` runs those checks and validates Lua syntax. Rex is not required for these tests.
 
 Once installed, Lefthook runs the full check against the working tree before each commit and validates its configuration when `lefthook.yml` is staged. The `commit-msg` hook checks the commit message with `typos` after stripping Git's comments. CI runs the same `mise run check`.
-
-Lua Language Server reads `.luarc.json` and the editor-only Rex API declarations in `types/rex.lua`. Plugin specifications and manager functions use LuaLS annotations for completion and diagnostics; these types do not enforce checks at runtime. The Rex declarations cover only the API used by this project.
 
 ## Plugin contract
 
@@ -158,7 +127,7 @@ This first version does not provide dependency resolution, lazy loading, uninsta
 
 ## Lockfile
 
-RPM records exact Git commits in `rpm-lock.json` alongside Rex's config file (`$XDG_CONFIG_HOME/rex/rpm-lock.json`, or `~/.config/rex/rpm-lock.json` by default). Set `lockfile = "/absolute/path/rpm-lock.json"` in `rpm.setup` to override it; the path is on the Rex server. The lockfile is JSON and may be committed alongside your config.
+RPM records exact Git commits in `rpm-lock.json` alongside the config file specified by `REX_CONFIG`, if set to a path with a directory. Otherwise it uses `$XDG_CONFIG_HOME/rex/rpm-lock.json`, or `~/.config/rex/rpm-lock.json` by default. Set `lockfile = "/absolute/path/rpm-lock.json"` in `rpm.setup` to override it; the path is on the Rex server. The lockfile is JSON and may be committed alongside your config.
 
 `rex do rpm_install` uses an existing locked commit for missing plugins. If a plugin has no entry, a successful install records its commit; running install on an already installed checkout records its current commit without changing it. Existing lock entries are never replaced by install. `rex do rpm_update` explicitly resolves and records a new commit. Changing `version` alone does not update the lock; RPM warns until you run update.
 
@@ -171,6 +140,35 @@ rex config reload
 Restore refuses checkouts with tracked or untracked changes. It can clone a missing checkout, but fails if Git cannot obtain the locked commit; it does not silently choose another. Restoring checks out a detached commit. For an unversioned plugin, a later update fetches the origin default branch and advances only if the checkout is clean and can be fast-forwarded. Local `path` plugins are never locked or restored; disabled and removed plugins' entries are preserved. RPM does not automatically prune entries.
 
 Lockfile writes are serialized with a sibling `.lock` directory and written via a temporary file and rename. A killed process may leave the guard behind; after confirming no RPM action is running, remove `<lockfile>.lock` to retry. A corrupt lockfile causes actions to fail rather than overwriting it. If Git changes a checkout but writing the lockfile fails, RPM reports the error; inspect the checkout and lockfile before retrying. `rex config check` and config reload can read the lockfile to report drift, but do not create or modify it.
+
+## Editor completion
+
+For completion and diagnostics in your Rex `init.lua`, configure [Lua Language Server](https://luals.github.io/) in your editor. Add a `.luarc.json` to your Rex config workspace (typically `~/.config/rex/`), replacing `/home/you` with your home directory:
+
+```json
+{
+  "runtime.version": "Lua 5.1",
+  "workspace.library": ["/home/you/.local/share/rex/rpm/types"],
+  "diagnostics.globals": ["rex"]
+}
+```
+
+Use the `types` directory in your RPM checkout on the editor's machine. If you already have a `.luarc.json`, merge these settings into it. Open the Rex config directory as the editor workspace so Lua Language Server reads the file.
+
+Because `dofile` uses a runtime path, annotate its result in `init.lua`:
+
+```lua
+---@type RpmModule
+local rpm = dofile(os.getenv("HOME") .. "/.local/share/rex/rpm/rex_plugin_manager.lua")
+
+rpm.setup({
+  plugins = {
+    { "rawnly/smart-splits-backend-rex", main = "smart-splits-rex", enabled = true },
+  },
+})
+```
+
+The annotations describe RPM's options; they do not change runtime behavior. The bundled `types/rex.lua` declarations cover only the Rex API used by RPM, not the complete Rex API. This external-workspace setup has not yet been verified in an editor.
 
 ## License
 
