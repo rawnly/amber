@@ -36,12 +36,13 @@ local function register_action(name, title, operation, plugins, ordered, all)
     category = "Plugins",
     args = { plugin = all and "string?" or "string" },
     run = function(_, args)
+      local deadline = os.time() + 23
       if all and not args.plugin then
         local results = {}
         local failed = false
         for _, plugin in ipairs(ordered) do
           if plugin.enabled and not plugin.local_path then
-            local status, err = operation(plugin)
+            local status, err = operation(plugin, deadline)
             results[#results + 1] =
               { plugin = plugin.name, status = status or "failed", error = err }
             if not status then
@@ -67,7 +68,7 @@ local function register_action(name, title, operation, plugins, ordered, all)
       if not plugin.enabled then
         error(plugin.name .. ": plugin is disabled", 0)
       end
-      local status, err = operation(plugin)
+      local status, err = operation(plugin, deadline)
       if not status then
         error(plugin.name .. ": " .. err, 0)
       end

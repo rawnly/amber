@@ -2,17 +2,29 @@
 local util = ...
 local run, exists = util.run, util.exists
 
+local function timed_run(argv, opts, deadline)
+  opts = opts or {}
+  if deadline then
+    local remaining = deadline - os.time()
+    if remaining <= 0 then
+      return nil, "action time budget exhausted; retry remaining plugins"
+    end
+    opts.timeout = math.min(opts.timeout or 20, remaining)
+  end
+  return run(argv, opts)
+end
+
 ---@param plugin RpmPlugin
 ---@param dir string
 ---@return RexExecResult? result
 ---@return string? err
-local function checkout_version(plugin, dir)
+local function checkout_version(plugin, dir, deadline)
   local version = plugin.version
   local operator = version:sub(1, 1)
   if operator == "^" or operator == "~" then
     local major, minor, patch = version:match("^[%^~](%d+)%.(%d+)%.(%d+)$")
     major, minor, patch = tonumber(major), tonumber(minor), tonumber(patch)
-    local tags, err = run({ "git", "tag", "--list" }, { cwd = dir })
+    local tags, err = timed_run({ "git", "tag", "--list" }, { cwd = dir }, deadline)
     if not tags then
       return nil, err
     end
@@ -45,27 +57,33 @@ local function checkout_version(plugin, dir)
     version = best
   end
   if operator ~= "^" and operator ~= "~" then
-    local tag = run(
+    local tag = timed_run(
       { "git", "show-ref", "--verify", "--quiet", "refs/tags/" .. version },
-      { cwd = dir }
+      { cwd = dir },
+      deadline
     )
     if not tag then
-      local branch = run(
+      local branch = timed_run(
         { "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/" .. version },
-        { cwd = dir }
+        { cwd = dir },
+        deadline
       )
       if branch then
         version = "origin/" .. version
       end
     end
   end
-  return run({ "git", "checkout", "--detach", version, "--" }, { cwd = dir, timeout = 5 })
+  return timed_run(
+    { "git", "checkout", "--detach", version, "--" },
+    { cwd = dir, timeout = 5 },
+    deadline
+  )
 end
 
 ---@param plugin RpmPlugin
 ---@return string? status
 ---@return string? err
-local function install_unlocked(plugin)
+local function install_unlocked(plugin, deadline)
   if plugin.local_path then
     return nil, "local plugins are managed outside rpm"
   end
@@ -85,16 +103,16 @@ local function install_unlocked(plugin)
     return nil, temp_err
   end
   local dir = temp.stdout:gsub("%s+$", "")
-  local result, clone_err = run({ "git", "clone", "--", plugin.url, dir }, {
+  local result, clone_err = timed_run({ "git", "clone", "--", plugin.url, dir }, {
     timeout = 20,
     env = { GIT_TERMINAL_PROMPT = "0" },
-  })
+  }, deadline)
   if not result then
     run({ "rm", "-rf", "--", dir })
     return nil, clone_err
   end
   if plugin.version then
-    local checked, checkout_err = checkout_version(plugin, dir)
+    local checked, checkout_err = checkout_version(plugin, dir, deadline)
     if not checked then
       run({ "rm", "-rf", "--", dir })
       return nil, checkout_err
@@ -115,7 +133,10 @@ end
 ---@param plugin RpmPlugin
 ---@return string? status
 ---@return string? err
-local function install(plugin)
+local function install(plugin, deadline)
+  if deadline and os.time() >= deadline then
+    return nil, "action time budget exhausted; retry remaining plugins"
+  end
   if plugin.local_path then
     return nil, "local plugins are managed outside rpm"
   end
@@ -131,7 +152,7 @@ local function install(plugin)
   if not locked then
     return nil, "installation locked: " .. lock
   end
-  local ok, status, err = pcall(install_unlocked, plugin)
+  local ok, status, err = pcall(install_unlocked, plugin, deadline)
   local removed, remove_err = run({ "rmdir", "--", lock })
   if not removed then
     return nil, "cannot release install lock " .. lock .. ": " .. tostring(remove_err)
@@ -145,7 +166,10 @@ end
 ---@param plugin RpmPlugin
 ---@return string? status
 ---@return string? err
-local function update(plugin)
+local function update(plugin, deadline)
+  if deadline and os.time() >= deadline then
+    return nil, "action time budget exhausted; retry remaining plugins"
+  end
   if plugin.local_path then
     return nil, "local plugins are managed outside rpm"
   end
@@ -153,25 +177,25 @@ local function update(plugin)
     return nil, "not installed"
   end
   if plugin.version then
-    local result, err = run({ "git", "fetch", "--tags", "origin" }, {
+    local result, err = timed_run({ "git", "fetch", "--tags", "origin" }, {
       cwd = plugin.dir,
       timeout = 20,
       env = { GIT_TERMINAL_PROMPT = "0" },
-    })
+    }, deadline)
     if not result then
       return nil, err
     end
-    result, err = checkout_version(plugin, plugin.dir)
+    result, err = checkout_version(plugin, plugin.dir, deadline)
     if not result then
       return nil, err
     end
     return "updated"
   end
-  local result, err = run({ "git", "pull", "--ff-only" }, {
+  local result, err = timed_run({ "git", "pull", "--ff-only" }, {
     cwd = plugin.dir,
     timeout = 20,
     env = { GIT_TERMINAL_PROMPT = "0" },
-  })
+  }, deadline)
   if not result then
     return nil, err
   end
