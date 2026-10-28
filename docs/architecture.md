@@ -1,0 +1,72 @@
+# Architecture
+
+Rex Plugin Manager (RPM) is a Lua 5.1 module loaded by the Rex server's configuration. It turns plugin declarations into local paths, loads their Rex-side Lua entry points, and registers actions for installing and updating GitHub repositories. The entry point is `rex_plugin_manager.lua`; `rpm/spec.lua` validates specs, `rpm/git.lua` handles Git operations, `rpm/loader.lua` registers actions and loads plugins, and `rpm/util.lua` contains shared command and filesystem helpers.
+
+## Execution model
+
+```text
+Rex config load / check / reload
+  └─ rpm.setup(config)
+       ├─ validate and normalize plugin specifications
+       ├─ register rpm_install and rpm_update actions
+       └─ load enabled plugin entry points, in declaration order
+            └─ require(main).setup(opts)
+
+Later: rex do rpm_install plugin=owner/repo
+       rex do rpm_update  plugin=owner/repo
+  └─ Rex invokes the corresponding registered action
+       └─ RPM runs Git and filesystem commands via rex.exec
+```
+
+Configuration loading is separate from fetching: `setup` does not clone or update repositories. A newly installed or updated plugin takes effect on the next `rex config reload`. Rex also executes the configuration during `rex config check`, so plugin setup code runs during checks as well.
+
+Rex configuration runs on the server machine. RPM, local plugin paths, Git, and installed checkouts must therefore be available there, not merely on the client. Plugins execute as Lua code with the server user's privileges; RPM is not a sandbox.
+
+## Configuration and normalized plugins
+
+`setup` accepts `root` and an ordered `plugins` list. Each element is either an `owner/repo` string or a table whose first element is that name. A table can also specify:
+
+| Field | Purpose |
+| --- | --- |
+| `opts` | Table passed to the plugin's `setup`; defaults to an empty table. |
+| `enabled` | Defaults to true. False skips loading and rejects install/update actions. |
+| `path` | Absolute path to an externally managed local checkout. |
+| `main` | Lua module name; defaults to the repository name. |
+| `version` | Git ref or supported semver constraint for managed checkouts; incompatible with `path`. |
+
+All plugins, including local ones, have an `owner/repo` identity. RPM validates names and module names, rejects duplicate identities and enabled main module names, and derives a GitHub HTTPS URL for each name. For managed plugins, the default root is `$XDG_DATA_HOME/rex/plugins` or `~/.local/share/rex/plugins`; the checkout is `<root>/<owner>/<repo>`. `root` overrides that location. A local `path` bypasses this layout and is never installed or updated by RPM.
+
+RPM keeps both an ordered list for loading and a name-indexed table for action lookup. These are built anew each time `setup` runs. Plugin modules must return a table containing `setup(opts)`; version and author fields in that module are not required. `version` in the manager's specification controls the checkout, not plugin metadata.
+
+## Loading and errors
+
+For every enabled plugin, RPM chooses `rex/lua` when present, otherwise `lua`, checks for the main module there, prepends that root to `package.path`, and invokes `require(main).setup(opts)` inside `pcall`. It never falls back to `lua` when `rex/lua` exists. A missing module produces a warning; a load or setup failure is logged as an error, and RPM continues to the next plugin. Lua's global module cache and namespace are shared, so unrelated module-name collisions remain possible. Disabled plugins do not load or produce missing-entry warnings. Configuration validation errors, such as duplicate names or an invalid version, raise an error instead.
+
+Loading checks the module file, not the Git checkout state or whether its current commit matches the declared version. Changing a version declaration does not switch an existing checkout until an update action is run. Plugins register their Rex actions and bindings during config load; their own action callbacks run later.
+
+## Installation and updates
+
+Actions take a `plugin` name and operate on one declared, enabled plugin per invocation. RPM rejects unknown, disabled, and externally managed plugins. Actions return a status and a reminder to reload; command failures become action errors.
+
+For installation, RPM:
+
+1. Treats a checkout containing `.git/HEAD` as already installed; refuses an existing destination that is not such a checkout.
+2. Creates the owner directory and a unique temporary sibling directory.
+3. Runs `git clone` into that directory, then optionally checks out the requested version.
+4. Moves the completed clone into its final location without intentionally replacing an existing destination.
+
+Failed clones and checkouts trigger temporary-directory cleanup. An interruption can leave a `.rpm-*` directory behind. The implementation relies on the platform's `mktemp`, `mv`, and `rm` commands; its temporary-directory move is not a general-purpose transactional package store.
+
+For updates, an unversioned checkout uses `git pull --ff-only`. A versioned checkout fetches tags and checks out the selected ref in detached HEAD state. Git reports conflicts or other failures; RPM does not reset working-tree changes. Switching from a versioned detached checkout to an unversioned declaration may require manually checking out a branch before a pull can succeed.
+
+`rex.exec` receives an argument vector rather than a shell command. RPM checks both process startup errors and exit status; network Git operations set `GIT_TERMINAL_PROMPT=0`. Individual Git operations have a 20-second timeout, but Rex actions also have their own deadline, so a multi-command operation can still be interrupted by Rex.
+
+## Version resolution
+
+Without `version`, Git's default branch is used. An exact version is passed to Git as a ref. `^x.y.z` and `~x.y.z` select the highest matching stable `x.y.z` or `vx.y.z` tag among locally available tags, applying caret or tilde bounds. Updates fetch tags before resolving again. Prerelease tags and broader lazy.nvim semver expressions are not supported. There is no lockfile, so a range can resolve to a newer tag on a later update or fresh install.
+
+## Development and verification
+
+`mise.toml` pins Lua 5.1 and StyLua. `mise run check` runs formatting checks, Lua syntax validation, and `scripts/test.sh`; the script creates a temporary fixture for `tests/test.lua`. Tests stub Rex APIs and Git responses, so they do not prove live Git operations or Rex pane behavior. The README documents setup and task commands.
+
+Current non-goals include dependency resolution, lazy loading, lockfiles, uninstall, arbitrary remote URLs, and Windows support. These are not implied by the current module contract.

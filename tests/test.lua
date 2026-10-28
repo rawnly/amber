@@ -8,6 +8,13 @@ rex = {
     logs[#logs + 1] = { level, message }
   end,
   exec = function(argv, opts)
+    if argv[1] == "test" and argv[2] == "-d" then
+      local file = io.open(argv[3], "r")
+      if file then
+        file:close()
+      end
+      return { ok = file ~= nil, stdout = "", stderr = "", code = file and 0 or 1 }
+    end
     calls[#calls + 1] = { argv = argv, opts = opts }
     if argv[1] == "git" and argv[2] == "tag" then
       return { ok = true, stdout = "v1.2.0\nv1.4.0\nv2.0.0\n", stderr = "", code = 0 }
@@ -27,6 +34,7 @@ rpm.setup({
   },
 })
 assert(_G.plugin_message == "configured")
+assert(require("example") == package.loaded.example)
 assert(#logs == 1 and logs[1][2]:match("bob/missing"))
 assert(actions.rpm_install and actions.rpm_update)
 assert(actions.rpm_install.run({}, { plugin = "alice/example" }).status == "already installed")
@@ -67,4 +75,8 @@ assert(calls[#calls].argv[2] == "checkout" and calls[#calls].argv[4] == "v1.4.0"
 assert(
   not pcall(rpm.setup, { root = root, plugins = { { "alice/example", version = ">=1.0.0" } } })
 )
+rpm.setup({ root = root, plugins = { "carol/shared" } })
+assert(_G.shared_source == "rex")
+assert(not pcall(rpm.setup, { root = root, plugins = { "alice/example", "bob/example" } }))
+assert(not pcall(rpm.setup, { root = root, plugins = { { "alice/example", entry = "init.lua" } } }))
 print("tests passed")

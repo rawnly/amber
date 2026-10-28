@@ -4,46 +4,77 @@ A small GitHub plugin manager for Rex. Plugins are Lua modules installed on the 
 
 ## Installation
 
-Clone this repository anywhere on the Rex server, then load the manager by absolute path from your Rex config (`~/.config/rex/init.lua` by default):
+Clone this repository anywhere on the Rex server, then load the manager by absolute path from your Rex config (`~/.config/rex/init.lua` by default). This example uses [smart-splits-backend-rex](https://github.com/rawnly/smart-splits-backend-rex), which connects Neovim's smart-splits with Rex pane navigation:
 
 ```lua
 local rpm = dofile(os.getenv("HOME") .. "/path/to/rex-plugin-manager/rex_plugin_manager.lua")
 
 rpm.setup({
   plugins = {
-    { "alice/rex-projects", opts = { root = "~/Projects" } },
-    "bob/rex-workspaces",
+    {
+      "rawnly/smart-splits-backend-rex",
+      main = "smart-splits-rex",
+      opts = { resize = false },
+    },
   },
 })
 ```
 
-Replace the path and example repositories with real ones. Reload the configuration, install each plugin explicitly, then reload again:
+Replace the manager path with your actual checkout path. The Rex-side module must be published to the smart-splits repository before Git installation can use it; until then, use the local checkout example below. Once published, reload, install, and reload again:
 
 ```sh
 rex config check
 rex config reload
-rex do rpm_install plugin=alice/rex-projects
-rex do rpm_install plugin=bob/rex-workspaces
+rex do rpm_install plugin=rawnly/smart-splits-backend-rex
 rex config reload
 ```
 
-Update a plugin with `rex do rpm_update plugin=alice/rex-projects`, then reload. Updates use `git pull --ff-only`; failures are reported without resetting local changes. Each action handles one plugin to fit Rex's action time limit. Git authentication must work non-interactively; terminal prompts are disabled.
+Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Updates use `git pull --ff-only`; failures are reported without resetting local changes. Each action handles one plugin to fit Rex's action time limit. Git authentication must work non-interactively; terminal prompts are disabled.
 
 By default plugins live at `$XDG_DATA_HOME/rex/plugins/<owner>/<repo>`, or `~/.local/share/rex/plugins/<owner>/<repo>` if `XDG_DATA_HOME` is unset. Override with `root = "/absolute/path"` in `setup`. Only GitHub `owner/repo` shorthand is supported for fetching. Plugins load in declaration order; missing plugins and load errors are logged and do not stop other plugins loading.
 
-For development or repositories that contain both Neovim and Rex code, specify an absolute local checkout and a relative entry point:
+For development or repositories that contain both Neovim and Rex code, specify an absolute local checkout and its Rex module name:
 
 ```lua
 { "rawnly/smart-splits-backend-rex",
   path = "/absolute/path/to/smart-splits-backend-rex",
-  entry = "rex/init.lua",
+  main = "smart-splits-rex",
   opts = { resize = false },
 }
 ```
 
-`path` checkouts are managed externally: install and update actions will not modify them. `entry` also works for fetched plugins and defaults to `init.lua`.
+`path` checkouts are managed externally: install and update actions will not modify them. `main` is the Lua module name and defaults to the repository name.
 
 Set `enabled = false` on any plugin specification to skip loading it without removing the declaration or its files. Disabled plugins produce no missing-plugin warning and cannot be installed or updated through manager actions. Re-enable it by setting `enabled = true` (or removing the field), then run `rex config reload`.
+
+## Editor completion
+
+For completion and diagnostics in your Rex `init.lua`, configure [Lua Language Server](https://luals.github.io/) in your editor. Add a `.luarc.json` to your Rex config workspace (typically `~/.config/rex/`):
+
+```json
+{
+  "runtime.version": "Lua 5.1",
+  "workspace.library": ["/absolute/path/to/rex-plugin-manager"],
+  "diagnostics.globals": ["rex"]
+}
+```
+
+Replace the library path with the location of your manager checkout on the **editor's** machine. If you already have a `.luarc.json`, merge these settings into it. Open the Rex config directory as the editor workspace so Lua Language Server reads the file.
+
+Because `dofile` uses a runtime path, annotate its result in `init.lua`:
+
+```lua
+---@type RpmModule
+local rpm = dofile("/absolute/path/to/rex-plugin-manager/rex_plugin_manager.lua")
+
+rpm.setup({
+  plugins = {
+    { "rawnly/smart-splits-backend-rex", main = "smart-splits-rex", enabled = true },
+  },
+})
+```
+
+The annotations describe RPM's options; they do not change runtime behavior. The bundled `types/rex.lua` declarations cover only the Rex API used by RPM, not the complete Rex API. This external-workspace setup has not yet been verified in an editor.
 
 ## Development
 
@@ -57,9 +88,11 @@ mise run check
 
 `mise run test` runs the Lua 5.1 tests using a temporary fixture. `mise run fmt` formats the Lua files with StyLua, and `mise run fmt:check` checks formatting without changing files. `mise run check` runs both checks and validates Lua syntax. Rex is not required for these tests.
 
+Lua Language Server reads `.luarc.json` and the editor-only Rex API declarations in `types/rex.lua`. Plugin specifications and manager functions use LuaLS annotations for completion and diagnostics; these types do not enforce checks at runtime. The Rex declarations cover only the API used by this project.
+
 ## Plugin contract
 
-A repository must contain an `init.lua` at its root:
+RPM looks for modules in `rex/lua/` if that directory exists, otherwise in `lua/`. The selected directory is exclusive: if the module is missing from `rex/lua/`, RPM does not fall back to `lua/`. For example, a plugin named `example` can provide `lua/example/init.lua`:
 
 ```lua
 local M = {}
@@ -79,7 +112,7 @@ end
 return M
 ```
 
-`setup` runs on every Rex config load and receives the declaration's `opts` table (empty by default). Register actions and bindings there, not later inside an action. Metadata is optional and informational. Plugins execute arbitrary Lua with the Rex server's privileges; only install repositories you trust. Rex config checks also load plugins, so plugin setup should avoid side effects beyond configuration.
+RPM adds the selected directory to `package.path`, requires the `main` module, and calls `setup(opts)`. Users can subsequently call its public API with `require("example")`. Lua's module namespace and `package.loaded` cache are shared: choose a unique module name. RPM rejects duplicate enabled `main` names but cannot prevent collisions with unrelated Lua modules. `setup` runs on every Rex config load and receives the declaration's `opts` table (empty by default). Register actions and bindings there, not later inside an action. Metadata is optional and informational. Plugins execute arbitrary Lua with the Rex server's privileges; only install repositories you trust. Rex config checks also load plugins, so plugin setup should avoid side effects beyond configuration.
 
 ## Versions
 

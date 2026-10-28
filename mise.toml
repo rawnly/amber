@@ -8,13 +8,13 @@ run = "sh scripts/test.sh"
 
 [tasks.fmt]
 description = "Format Lua files"
-run = "stylua rex_plugin_manager.lua tests"
+run = "stylua rex_plugin_manager.lua rpm tests types"
 
 [tasks."fmt:check"]
 description = "Check Lua formatting"
-run = "stylua --check rex_plugin_manager.lua tests"
+run = "stylua --check rex_plugin_manager.lua rpm tests types"
 
 [tasks.check]
 description = "Check formatting, Lua syntax, and tests"
 depends = ["fmt:check", "test"]
-run = "luac -p rex_plugin_manager.lua tests/test.lua"
+run = "luac -p rex_plugin_manager.lua rpm/*.lua tests/test.lua types/rex.lua"
