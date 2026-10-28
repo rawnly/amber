@@ -4,10 +4,17 @@ A small GitHub plugin manager for Rex. Plugins are Lua modules installed on the 
 
 ## Installation
 
-Clone this repository anywhere on the Rex server, then load the manager by absolute path from your Rex config (`~/.config/rex/init.lua` by default). This example uses [smart-splits-backend-rex](https://github.com/rawnly/smart-splits-backend-rex), which connects Neovim's smart-splits with Rex pane navigation:
+Clone RPM on the Rex server:
+
+```sh
+mkdir -p "$HOME/.local/share/rex"
+git clone https://github.com/rawnly/rpm.git "$HOME/.local/share/rex/rpm"
+```
+
+Then load it from your Rex config (`~/.config/rex/init.lua` by default). This example uses [smart-splits-backend-rex](https://github.com/rawnly/smart-splits-backend-rex), which connects Neovim's smart-splits with Rex pane navigation:
 
 ```lua
-local rpm = dofile("/absolute/path/to/rex-plugin-manager/rex_plugin_manager.lua")
+local rpm = dofile(os.getenv("HOME") .. "/.local/share/rex/rpm/rex_plugin_manager.lua")
 
 rpm.setup({
   plugins = {
@@ -20,7 +27,7 @@ rpm.setup({
 })
 ```
 
-Replace the manager path with your actual checkout path. The Rex-side module must be published to the smart-splits repository before Git installation can use it; until then, use the local checkout example below. By default, RPM installs missing enabled managed plugins automatically during configuration loading, including during `rex config check`. This performs network and filesystem operations and can slow down loading. Set `install = "manual"` in `rpm.setup` to disable automatic installs; then use `rex do rpm_install` and reload. Once published, run:
+If you cloned RPM elsewhere, change the path accordingly. The Rex-side module must be published to the smart-splits repository before Git installation can use it; until then, use the local checkout example below. By default, RPM installs missing enabled managed plugins automatically during configuration loading, including during `rex config check`. This performs network and filesystem operations and can slow down loading. Set `install = "manual"` in `rpm.setup` to disable automatic installs; then use `rex do rpm_install` and reload. Once published, run:
 
 ```sh
 rex config check
@@ -44,9 +51,9 @@ For development or repositories that contain both Neovim and Rex code, specify a
 }
 ```
 
-`path` checkouts are managed externally: install and update actions will not modify them. `main` is the Lua module name and defaults to the repository name.
+`path` checkouts are managed externally: install and update actions will not modify them. `main` is the Lua module name and defaults to the repository name, with a trailing `.rex` removed. Dots in the module name denote Lua module directories.
 
-Use `rex do rpm_status` to inspect declared plugins, their load status, errors, paths, versions, and available Git commits. The status reports the current config load and, for versioned managed plugins, compares the checkout with the locally resolved version. `version_matches = false` means an update is needed; `version_error` means RPM could not resolve or compare it. Status does not fetch new tags or branches. Use `rex do rpm_update` to update all enabled managed plugins, or pass `plugin=owner/repo` to update one. Actions share a bounded time budget and can be retried if it is exhausted.
+Use `rex do rpm_status` to inspect declared plugins, their load status, errors, paths, versions, and available Git commits. RPM also writes load failures with `rex.log`; log locations depend on server mode (see [Rex shared-server logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs)). The status reports the current config load and, for versioned managed plugins, compares the checkout with the locally resolved version. `version_matches = false` means an update is needed; `version_error` means RPM could not resolve or compare it. Status does not fetch new tags or branches. Use `rex do rpm_update` to update all enabled managed plugins, or pass `plugin=owner/repo` to update one. Actions share a bounded time budget and can be retried if it is exhausted.
 
 Set `enabled = false` on any plugin specification to skip loading it without removing the declaration or its files. Disabled plugins produce no missing-plugin warning and cannot be installed or updated through manager actions. Re-enable it by setting `enabled = true` (or removing the field), then run `rex config reload`.
 
