@@ -21,7 +21,7 @@ rpm.setup({
     {
       "rawnly/smart-splits-backend-rex",
       main = "smart-splits-rex",
-      opts = { resize = false },
+      opts = { resize_amount = 3 },
     },
   },
 })
@@ -46,7 +46,7 @@ For development or repositories that contain both Neovim and Rex code, specify a
 { "rawnly/smart-splits-backend-rex",
   path = "/absolute/path/to/smart-splits-backend-rex",
   main = "smart-splits-rex",
-  opts = { resize = false },
+  opts = { resize_amount = 3 },
 }
 ```
 
