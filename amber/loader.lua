@@ -1,4 +1,4 @@
----@type RpmUtil
+---@type AmberUtil
 local util = ...
 local exists = util.exists
 local module_roots = {}
@@ -13,7 +13,7 @@ local function plugin_searcher(name)
     end
   end
   if not root then
-    return "\n\trpm: no plugin owns " .. name
+    return "\n\tamber: no plugin owns " .. name
   end
   local relative = name:gsub("%.", "/")
   for _, path in ipairs({
@@ -25,7 +25,7 @@ local function plugin_searcher(name)
     end
   end
   return function()
-    error("rpm: module " .. name .. " not found in " .. root, 0)
+    error("amber: module " .. name .. " not found in " .. root, 0)
   end
 end
 
@@ -33,9 +33,9 @@ table.insert(package.loaders, 2, plugin_searcher)
 
 ---@param name string
 ---@param title string
----@param operation fun(plugin: RpmPlugin, deadline?: number): string?, string?
----@param plugins table<string, RpmPlugin>
----@param ordered RpmPlugin[]
+---@param operation fun(plugin: AmberPlugin, deadline?: number): string?, string?
+---@param plugins table<string, AmberPlugin>
+---@param ordered AmberPlugin[]
 ---@param all? boolean
 local function register_action(name, title, operation, plugins, ordered, all)
   rex.action({
@@ -84,7 +84,7 @@ local function register_action(name, title, operation, plugins, ordered, all)
   })
 end
 
----@param plugin RpmPlugin
+---@param plugin AmberPlugin
 local function load_plugin(plugin)
   if not plugin.enabled then
     plugin.load_status = "disabled"
@@ -100,7 +100,7 @@ local function load_plugin(plugin)
   then
     plugin.load_status, plugin.load_error =
       "missing", "module " .. plugin.main .. " not found in " .. lua_dir
-    rex.log("warn", "rpm: " .. plugin.name .. ": " .. plugin.load_error)
+    rex.log("warn", "amber: " .. plugin.name .. ": " .. plugin.load_error)
     return
   end
 
@@ -118,7 +118,7 @@ local function load_plugin(plugin)
   end)
   if not ok then
     plugin.load_status, plugin.load_error = "error", tostring(load_err)
-    rex.log("error", "rpm: " .. plugin.name .. ": " .. plugin.load_error)
+    rex.log("error", "amber: " .. plugin.name .. ": " .. plugin.load_error)
   else
     plugin.load_status, plugin.load_error = "loaded", nil
   end

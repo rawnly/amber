@@ -13,11 +13,11 @@ run = ["sh scripts/test.sh", "sh scripts/test-install.sh"]
 
 [tasks.fmt]
 description = "Format Lua and shell files"
-run = ["stylua rex_plugin_manager.lua rpm tests types", "shfmt -i 2 -w install.sh scripts/*.sh"]
+run = ["stylua amber.lua amber tests types", "shfmt -i 2 -w install.sh scripts/*.sh"]
 
 [tasks."fmt:check"]
 description = "Check Lua and shell formatting"
-run = ["stylua --check rex_plugin_manager.lua rpm tests types", "shfmt -i 2 -d install.sh scripts/*.sh"]
+run = ["stylua --check amber.lua amber tests types", "shfmt -i 2 -d install.sh scripts/*.sh"]
 
 [tasks.lint]
 description = "Lint shell scripts"
@@ -30,4 +30,4 @@ run = "lua-language-server --check . --checklevel Warning --check_format pretty"
 [tasks.check]
 description = "Check formatting, lint, types, Lua syntax, and tests"
 depends = ["fmt:check", "lint", "test", "types"]
-run = "luac -p rex_plugin_manager.lua rpm/*.lua tests/test.lua types/*.lua"
+run = "luac -p amber.lua amber/*.lua tests/test.lua types/*.lua"

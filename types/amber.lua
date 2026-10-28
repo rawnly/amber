@@ -1,6 +1,6 @@
 ---@meta
 
----@class RpmPluginSpec
+---@class AmberPluginSpec
 ---@field [1] string GitHub owner/repository identity.
 ---@field opts? table Options passed to the plugin's setup function.
 ---@field enabled? boolean Defaults to true.
@@ -8,13 +8,13 @@
 ---@field main? string Lua module name; defaults to the repository name.
 ---@field version? string Git ref or supported semver constraint.
 
----@class RpmConfig
+---@class AmberConfig
 ---@field root? string Absolute directory for managed checkouts.
 ---@field install? "manual" Installation is always manual.
----@field lockfile? string Absolute lockfile path; defaults to rpm-lock.json in the Rex config directory.
----@field plugins? (string|RpmPluginSpec)[] Plugins in load order.
+---@field lockfile? string Absolute lockfile path; defaults to amber-lock.json in the Rex config directory.
+---@field plugins? (string|AmberPluginSpec)[] Plugins in load order.
 
----@class RpmPlugin
+---@class AmberPlugin
 ---@field name string
 ---@field url string
 ---@field dir string
@@ -27,6 +27,6 @@
 ---@field load_status? string
 ---@field load_error? string
 
----@class RpmModule
+---@class AmberModule
 ---@field version string
----@field setup fun(config?: RpmConfig)
+---@field setup fun(config?: AmberConfig)

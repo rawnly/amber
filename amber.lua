@@ -1,19 +1,19 @@
--- Rex Plugin Manager: install GitHub repositories and load their Lua entry points.
+-- Amber: install GitHub repositories and load their Lua entry points.
 
----@type RpmModule
+---@type AmberModule
 ---@diagnostic disable-next-line: missing-fields
 local M = { version = "0.1.0" }
 
 local source = debug.getinfo(1, "S").source
 local directory = source:match("^@?(.*/)") or "./"
-local util = assert(loadfile(directory .. "rpm/util.lua"))()
-local parse = assert(loadfile(directory .. "rpm/spec.lua"))()
-local git = assert(loadfile(directory .. "rpm/git.lua"))(util)
-local loader = assert(loadfile(directory .. "rpm/loader.lua"))(util)
-local lock = assert(loadfile(directory .. "rpm/lock.lua"))(util)
+local util = assert(loadfile(directory .. "amber/util.lua"))()
+local parse = assert(loadfile(directory .. "amber/spec.lua"))()
+local git = assert(loadfile(directory .. "amber/git.lua"))(util)
+local loader = assert(loadfile(directory .. "amber/loader.lua"))(util)
+local lock = assert(loadfile(directory .. "amber/lock.lua"))(util)
 local register_action, load_plugin = loader.register_action, loader.load_plugin
 
----@param config? RpmConfig
+---@param config? AmberConfig
 function M.setup(config)
   config = config or {}
   local home = os.getenv("HOME")
@@ -23,11 +23,11 @@ function M.setup(config)
       .. "/rex/plugins"
     )
   if type(root) ~= "string" or root:sub(1, 1) ~= "/" then
-    rex.log("error", "rpm: plugin root must be an absolute path")
+    rex.log("error", "amber: plugin root must be an absolute path")
     return
   end
   if config.install ~= nil and config.install ~= "manual" then
-    rex.log("error", "rpm: automatic installation is not supported; use rpm_install")
+    rex.log("error", "amber: automatic installation is not supported; use amber_install")
     return
   end
 
@@ -35,10 +35,10 @@ function M.setup(config)
   local config_path = os.getenv("REX_CONFIG")
   local config_dir = config_path and config_path:match("^(.*)/[^/]+$")
   local lockfile = config.lockfile
-    or (config_dir and config_dir .. "/rpm-lock.json")
-    or (config_home and config_home .. "/rex/rpm-lock.json")
+    or (config_dir and config_dir .. "/amber-lock.json")
+    or (config_home and config_home .. "/rex/amber-lock.json")
   if type(lockfile) ~= "string" or lockfile:sub(1, 1) ~= "/" or lockfile:sub(-1) == "/" then
-    rex.log("error", "rpm: lockfile must be an absolute file path")
+    rex.log("error", "amber: lockfile must be an absolute file path")
     return
   end
 
@@ -46,11 +46,11 @@ function M.setup(config)
   for _, spec in ipairs(config.plugins or {}) do
     local ok, plugin = pcall(parse, spec, root)
     if not ok then
-      rex.log("error", "rpm: invalid plugin specification: " .. tostring(plugin))
+      rex.log("error", "amber: invalid plugin specification: " .. tostring(plugin))
     elseif by_name[plugin.name] or (plugin.enabled and modules[plugin.main]) then
       rex.log(
         "error",
-        "rpm: duplicate plugin or main module: " .. plugin.name .. " (" .. plugin.main .. ")"
+        "amber: duplicate plugin or main module: " .. plugin.name .. " (" .. plugin.main .. ")"
       )
     else
       if plugin.enabled then
@@ -89,17 +89,17 @@ function M.setup(config)
       return status, nil, true
     end)
   end
-  register_action("rpm_install", "Install Rex Plugins", function(plugin, deadline)
+  register_action("amber_install", "Install Rex Plugins", function(plugin, deadline)
     return manage(plugin, deadline, "install")
   end, by_name, plugins, true)
-  register_action("rpm_update", "Update Rex Plugins", function(plugin, deadline)
+  register_action("amber_update", "Update Rex Plugins", function(plugin, deadline)
     return manage(plugin, deadline, "update")
   end, by_name, plugins, true)
-  register_action("rpm_restore", "Restore Rex Plugins", function(plugin, deadline)
+  register_action("amber_restore", "Restore Rex Plugins", function(plugin, deadline)
     return manage(plugin, deadline, "restore")
   end, by_name, plugins, true)
   rex.action({
-    name = "rpm_status",
+    name = "amber_status",
     title = "Rex Plugin Status",
     category = "Plugins",
     run = function()
@@ -150,7 +150,7 @@ function M.setup(config)
   })
   local lock_data, lock_error = lock.read(lockfile)
   if not lock_data then
-    rex.log("error", "rpm: " .. tostring(lock_error))
+    rex.log("error", "amber: " .. tostring(lock_error))
   end
   for _, plugin in ipairs(plugins) do
     local locked = lock_data and lock_data.plugins[plugin.name]
@@ -158,9 +158,9 @@ function M.setup(config)
       if locked.version ~= plugin.version then
         rex.log(
           "warn",
-          "rpm: "
+          "amber: "
             .. plugin.name
-            .. ": version spec changed; lock remains authoritative until rpm_update"
+            .. ": version spec changed; lock remains authoritative until amber_update"
         )
       end
       if util.exists(plugin.dir .. "/.git/HEAD") then
@@ -168,10 +168,10 @@ function M.setup(config)
         if head and head ~= locked.commit then
           rex.log(
             "warn",
-            "rpm: " .. plugin.name .. ": checkout differs from lockfile; run rpm_restore"
+            "amber: " .. plugin.name .. ": checkout differs from lockfile; run amber_restore"
           )
         elseif err then
-          rex.log("warn", "rpm: " .. plugin.name .. ": cannot check lockfile: " .. err)
+          rex.log("warn", "amber: " .. plugin.name .. ": cannot check lockfile: " .. err)
         end
       end
     end
@@ -185,14 +185,14 @@ function M.setup(config)
       if matches == false then
         rex.log(
           "warn",
-          "rpm: "
+          "amber: "
             .. plugin.name
             .. ": checkout does not match version "
             .. plugin.version
-            .. "; run rpm_update"
+            .. "; run amber_update"
         )
       elseif err then
-        rex.log("warn", "rpm: " .. plugin.name .. ": cannot check version: " .. err)
+        rex.log("warn", "amber: " .. plugin.name .. ": cannot check version: " .. err)
       end
     end
     load_plugin(plugin)

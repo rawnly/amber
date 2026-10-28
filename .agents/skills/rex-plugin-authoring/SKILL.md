@@ -1,18 +1,18 @@
 ---
 name: rex-plugin-authoring
-description: Build, adapt, test, or review Lua plugins for Rex Plugin Manager (RPM). Use when creating a Rex plugin, adding Rex support to an existing repository, or diagnosing RPM plugin loading and setup.
+description: Build, adapt, test, or review Lua plugins for Amber. Use when creating a Rex plugin, adding Rex support to an existing repository, or diagnosing Amber plugin loading and setup.
 ---
 
-# Authoring Rex Plugin Manager plugins
+# Authoring Amber plugins
 
-Build for Lua 5.1 and the Rex server environment. Check the target repository's instructions and current Rex API documentation before using APIs beyond the example below; RPM's bundled `types/rex.lua` is only a partial API declaration. Do not assume Neovim APIs or that client-side files are available on the Rex server.
+Build for Lua 5.1 and the Rex server environment. Check the target repository's instructions and current Rex API documentation before using APIs beyond the example below; Amber's bundled `types/rex.lua` is only a partial API declaration. Do not assume Neovim APIs or that client-side files are available on the Rex server.
 
 ## Module layout and contract
 
-1. Choose a unique Lua module namespace. RPM defaults `main` to the repository name, with a trailing `.rex` removed; tell users to set `main` explicitly when the entry point differs.
-2. Place the entry point at `lua/<main>.lua` or `lua/<main>/init.lua`, replacing dots in `main` with directory separators. For a repository with separate Rex code, use the equivalent path under `rex/lua/`. If `rex/lua/` exists, RPM exclusively uses it and never falls back to `lua/`.
-3. Return a table with a `setup(opts)` function. RPM calls it with the plugin spec's `opts` table (empty by default) on every config load, reload, and config check. Metadata is optional. Handle missing option fields, document defaults, and do not rely on setup running only once.
-4. Put plugin-owned submodules beneath the main namespace, e.g. `require("example_rex.helper")` at `lua/example_rex/helper.lua`. RPM's searcher is scoped to `main` and its dotted descendants; it does not add arbitrary plugin directories to `package.path` or resolve dependencies. Lua's `package.loaded` and module names are shared, so avoid collisions.
+1. Choose a unique Lua module namespace. Amber defaults `main` to the repository name, with a trailing `.rex` removed; tell users to set `main` explicitly when the entry point differs.
+2. Place the entry point at `lua/<main>.lua` or `lua/<main>/init.lua`, replacing dots in `main` with directory separators. For a repository with separate Rex code, use the equivalent path under `rex/lua/`. If `rex/lua/` exists, Amber exclusively uses it and never falls back to `lua/`.
+3. Return a table with a `setup(opts)` function. Amber calls it with the plugin spec's `opts` table (empty by default) on every config load, reload, and config check. Metadata is optional. Handle missing option fields, document defaults, and do not rely on setup running only once.
+4. Put plugin-owned submodules beneath the main namespace, e.g. `require("example_rex.helper")` at `lua/example_rex/helper.lua`. Amber's searcher is scoped to `main` and its dotted descendants; it does not add arbitrary plugin directories to `package.path` or resolve dependencies. Lua's `package.loaded` and module names are shared, so avoid collisions.
 
 Minimal `lua/example_rex/init.lua`:
 
@@ -37,17 +37,17 @@ Register actions and bindings during setup; defer operations that require a live
 
 ## Document installation
 
-Give users an RPM declaration matching the actual published repository and module name, for example:
+Give users an Amber declaration matching the actual published repository and module name, for example:
 
 ```lua
-rpm.setup({
+amber.setup({
   plugins = {
     { "alice/example-rex", main = "example_rex", opts = { message = "Hello!" } },
   },
 })
 ```
 
-For development, add `path = "/absolute/path/to/example-rex"` to that spec. Local paths are server-side and externally managed; RPM does not install or update them, and `version` cannot be combined with `path`. Managed repositories must be published to GitHub before a fresh install can fetch them. RPM never installs during config load or `rex config check`: after loading the config, run `rex do rpm_install`, then `rex config reload`. Installs record exact commits in `rpm-lock.json` and honor existing lock entries; `rpm_update` advances them and `rpm_restore` restores them. Changes made through these actions take effect on config reload. Do not promise dependency resolution, lazy loading, or other features RPM does not provide.
+For development, add `path = "/absolute/path/to/example-rex"` to that spec. Local paths are server-side and externally managed; Amber does not install or update them, and `version` cannot be combined with `path`. Managed repositories must be published to GitHub before a fresh install can fetch them. Amber never installs during config load or `rex config check`: after loading the config, run `rex do amber_install`, then `rex config reload`. Installs record exact commits in `amber-lock.json` and honor existing lock entries; `amber_update` advances them and `amber_restore` restores them. Changes made through these actions take effect on config reload. Do not promise dependency resolution, lazy loading, or other features Amber does not provide.
 
 ## Verify
 

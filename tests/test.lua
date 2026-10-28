@@ -113,15 +113,15 @@ local function test(name, fn)
       return nil, "unexpected command"
     end,
   }
-  local rpm = dofile("rex_plugin_manager.lua")
-  local setup = rpm.setup
+  local amber = dofile("amber.lua")
+  local setup = amber.setup
   ---@diagnostic disable-next-line: duplicate-set-field
-  rpm.setup = function(config)
+  amber.setup = function(config)
     config = config or {}
     config.lockfile = lock_path
     return setup(config)
   end
-  local ok, err = pcall(fn, rpm, actions, logs, calls, behavior)
+  local ok, err = pcall(fn, amber, actions, logs, calls, behavior)
   if not ok then
     error(name .. ": " .. tostring(err), 0)
   end
@@ -136,74 +136,74 @@ local function called(calls, command, argument)
   end
 end
 
-test("loads installed plugins without shadowing user modules", function(rpm, actions, logs, calls)
-  rpm.setup({
+test("loads installed plugins without shadowing user modules", function(amber, actions, logs, calls)
+  amber.setup({
     root = root,
     plugins = { { "alice/example", opts = { message = "configured" } }, "bob/missing" },
   })
   assert(_G.plugin_message == "configured" and require("example") == package.loaded.example)
   assert(require("keys") == "user")
   assert(logs[1][2]:match("not found") and not called(calls, "git", "clone"))
-  local report = actions.rpm_status.run({}, {})
+  local report = actions.amber_status.run({}, {})
   assert(report["alice/example"].loaded == "loaded" and report["bob/missing"].loaded == "missing")
-  assert(not pcall(actions.rpm_install.run, {}, {}))
+  assert(not pcall(actions.amber_install.run, {}, {}))
 end)
 
-test("bulk results are keyed by plugin name, even when empty", function(rpm, actions)
-  rpm.setup({ root = root, install = "manual", plugins = {} })
-  local result = actions.rpm_install.run({}, {})
+test("bulk results are keyed by plugin name, even when empty", function(amber, actions)
+  amber.setup({ root = root, install = "manual", plugins = {} })
+  local result = actions.amber_install.run({}, {})
   assert(type(result.plugins) == "table" and next(result.plugins) == nil)
-  rpm.setup({ root = root, install = "manual", plugins = { "alice/example" } })
-  result = actions.rpm_install.run({}, {})
+  amber.setup({ root = root, install = "manual", plugins = { "alice/example" } })
+  result = actions.amber_install.run({}, {})
   assert(result.plugins["alice/example"].status == "already installed")
 end)
 
-test("configuration loading never clones", function(rpm, _, _, calls)
-  rpm.setup({ root = root, plugins = { "bob/missing" } })
+test("configuration loading never clones", function(amber, _, _, calls)
+  amber.setup({ root = root, plugins = { "bob/missing" } })
   assert(not called(calls, "git", "clone"))
 end)
 
-test("disabled plugins neither load nor install", function(rpm, actions, logs, calls)
-  rpm.setup({
+test("disabled plugins neither load nor install", function(amber, actions, logs, calls)
+  amber.setup({
     root = root,
     plugins = { { "alice/example", enabled = false }, { "bob/missing", enabled = false } },
   })
   assert(_G.plugin_message == nil and #logs == 0 and not called(calls, "git", "clone"))
-  assert(not pcall(actions.rpm_install.run, {}, { plugin = "alice/example" }))
-  assert(not pcall(actions.rpm_update.run, {}, { plugin = "alice/example" }))
+  assert(not pcall(actions.amber_install.run, {}, { plugin = "alice/example" }))
+  assert(not pcall(actions.amber_update.run, {}, { plugin = "alice/example" }))
 end)
 
-test("loads a local checkout without a cached module", function(rpm, actions)
-  rpm.setup({
+test("loads a local checkout without a cached module", function(amber, actions)
+  amber.setup({
     root = root,
     plugins = { { "alice/example", path = root .. "/alice/example", opts = { message = "local" } } },
   })
   assert(_G.plugin_message == "local")
-  assert(not pcall(actions.rpm_update.run, {}, { plugin = "alice/example" }))
+  assert(not pcall(actions.amber_update.run, {}, { plugin = "alice/example" }))
 end)
 
-test("reports invalid and duplicate specifications", function(rpm, _, logs)
+test("reports invalid and duplicate specifications", function(amber, _, logs)
   ---@diagnostic disable-next-line: assign-type-mismatch
-  rpm.setup({
+  amber.setup({
     root = root,
     install = "manual",
     plugins = { "../escape", { "a/b", enabled = "no" } },
   })
   assert(logs[#logs][2]:match("invalid plugin"))
-  rpm.setup({
+  amber.setup({
     root = root,
     install = "manual",
     plugins = { { "alice/example", version = ">=1.0.0" } },
   })
   assert(logs[#logs][2]:match("invalid version"))
-  rpm.setup({ root = root, install = "manual", plugins = { "alice/example", "bob/example" } })
+  amber.setup({ root = root, install = "manual", plugins = { "alice/example", "bob/example" } })
   assert(logs[#logs][2]:match("duplicate"))
-  rpm.setup({ root = root, install = "manual", plugins = { { "alice/example", verison = "v1" } } })
+  amber.setup({ root = root, install = "manual", plugins = { { "alice/example", verison = "v1" } } })
   assert(logs[#logs][2]:match("did you mean version"))
 end)
 
-test("prefers Rex modules without falling back for submodules", function(rpm)
-  rpm.setup({ root = root, plugins = { "carol/shared" } })
+test("prefers Rex modules without falling back for submodules", function(amber)
+  amber.setup({ root = root, plugins = { "carol/shared" } })
   ---@diagnostic disable-next-line: undefined-field
   assert(_G.shared_source == "rex")
   assert(not pcall(require, "shared.missing"))
@@ -211,12 +211,12 @@ end)
 
 test(
   "selects compatible versions and warns about drift",
-  function(rpm, actions, logs, calls, behavior)
+  function(amber, actions, logs, calls, behavior)
     behavior.mismatch = true
-    rpm.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
+    amber.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
     assert(logs[#logs][2]:match("checkout does not match"))
     behavior.mismatch = false
-    assert(actions.rpm_update.run({}, { plugin = "alice/example" }).status == "updated")
+    assert(actions.amber_update.run({}, { plugin = "alice/example" }).status == "updated")
     local checkout = called(calls, "git", "checkout")
     assert(checkout and checkout.argv[4] == "v1.4.0")
   end
@@ -224,10 +224,10 @@ test(
 
 test(
   "installs a missing plugin and publishes its checkout",
-  function(rpm, actions, _, calls, behavior)
+  function(amber, actions, _, calls, behavior)
     behavior.clone_success = true
-    rpm.setup({ root = root, install = "manual", plugins = { { "bob/new", version = "~1.2.0" } } })
-    assert(actions.rpm_install.run({}, { plugin = "bob/new" }).status == "installed")
+    amber.setup({ root = root, install = "manual", plugins = { { "bob/new", version = "~1.2.0" } } })
+    assert(actions.amber_install.run({}, { plugin = "bob/new" }).status == "installed")
     local checkout = called(calls, "git", "checkout")
     assert(checkout and checkout.argv[4] == "v1.2.0")
     local head = assert(io.open(root .. "/bob/new/.git/HEAD", "r"))
@@ -237,40 +237,44 @@ test(
 
 test(
   "installs the locked commit despite a changed version spec",
-  function(rpm, actions, _, calls, behavior)
-    rpm.setup({ root = root, plugins = { "alice/example", { "bob/pinned", version = "^1.2.0" } } })
-    actions.rpm_install.run({}, { plugin = "alice/example" })
+  function(amber, actions, _, calls, behavior)
+    amber.setup({ root = root, plugins = { "alice/example", { "bob/pinned", version = "^1.2.0" } } })
+    actions.amber_install.run({}, { plugin = "alice/example" })
     behavior.lock_data.plugins["bob/pinned"] = { commit = string.rep("b", 40), version = "v1.0.0" }
     behavior.clone_success, behavior.temp = true, "locked"
-    assert(actions.rpm_install.run({}, { plugin = "bob/pinned" }).status == "installed")
+    assert(actions.amber_install.run({}, { plugin = "bob/pinned" }).status == "installed")
     local checkout = called(calls, "git", "checkout")
     assert(checkout and checkout.argv[4] == string.rep("b", 40))
     assert(behavior.lock_data.plugins["bob/pinned"].version == "v1.0.0")
   end
 )
 
-test("selects caret ranges in major version zero", function(rpm, actions, _, calls, behavior)
+test("selects caret ranges in major version zero", function(amber, actions, _, calls, behavior)
   behavior.tags = "v0.2.0\nv0.2.8\nv0.3.0\n"
-  rpm.setup({
+  amber.setup({
     root = root,
     install = "manual",
     plugins = { { "alice/example", version = "^0.2.0" } },
   })
-  actions.rpm_update.run({}, { plugin = "alice/example" })
+  actions.amber_update.run({}, { plugin = "alice/example" })
   local checkout = called(calls, "git", "checkout")
   assert(checkout and checkout.argv[4] == "v0.2.8")
 end)
 
-test("cleans up after version checkout failure", function(rpm, actions, _, calls, behavior)
+test("cleans up after version checkout failure", function(amber, actions, _, calls, behavior)
   behavior.clone_success, behavior.checkout_failure = true, true
-  rpm.setup({ root = root, install = "manual", plugins = { { "bob/failed", version = "~1.2.0" } } })
-  local ok, err = pcall(actions.rpm_install.run, {}, { plugin = "bob/failed" })
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "bob/failed", version = "~1.2.0" } },
+  })
+  local ok, err = pcall(actions.amber_install.run, {}, { plugin = "bob/failed" })
   assert(not ok and tostring(err):match("checkout failed"))
   assert(called(calls, "rm", "-rf"))
 end)
 
-test("bulk operations skip local and disabled plugins", function(rpm, actions, _, calls)
-  rpm.setup({
+test("bulk operations skip local and disabled plugins", function(amber, actions, _, calls)
+  amber.setup({
     root = root,
     install = "manual",
     plugins = {
@@ -278,38 +282,40 @@ test("bulk operations skip local and disabled plugins", function(rpm, actions, _
       { "bob/missing", enabled = false },
     },
   })
-  local result = actions.rpm_install.run({}, {})
+  local result = actions.amber_install.run({}, {})
   assert(next(result.plugins) == nil and not called(calls, "git", "clone"))
 end)
 
-test("reports clone timeouts and cleans up", function(rpm, actions, _, calls, behavior)
+test("reports clone timeouts and cleans up", function(amber, actions, _, calls, behavior)
   behavior.clone_timeout = true
-  rpm.setup({ root = root, install = "manual", plugins = { "bob/missing" } })
-  local ok, err = pcall(actions.rpm_install.run, {}, { plugin = "bob/missing" })
+  amber.setup({ root = root, install = "manual", plugins = { "bob/missing" } })
+  local ok, err = pcall(actions.amber_install.run, {}, { plugin = "bob/missing" })
   assert(not ok and tostring(err):match("timed out"))
   assert(called(calls, "rm", "-rf"))
 end)
 
 test(
   "records commits and refuses to restore dirty checkouts",
-  function(rpm, actions, _, calls, behavior)
-    rpm.setup({ root = root, plugins = { "alice/example" } })
-    assert(actions.rpm_install.run({}, { plugin = "alice/example" }).status == "already installed")
+  function(amber, actions, _, calls, behavior)
+    amber.setup({ root = root, plugins = { "alice/example" } })
+    assert(
+      actions.amber_install.run({}, { plugin = "alice/example" }).status == "already installed"
+    )
     behavior.dirty = true
-    local ok, err = pcall(actions.rpm_restore.run, {}, { plugin = "alice/example" })
+    local ok, err = pcall(actions.amber_restore.run, {}, { plugin = "alice/example" })
     assert(not ok and tostring(err):match("working tree is not clean"))
     assert(not called(calls, "git", "checkout"))
     behavior.dirty = false
-    assert(actions.rpm_restore.run({}, { plugin = "alice/example" }).status == "restored")
+    assert(actions.amber_restore.run({}, { plugin = "alice/example" }).status == "restored")
     assert(called(calls, "git", "checkout").argv[4] == string.rep("a", 40))
   end
 )
 
-test("updates the lock only on an explicit update", function(rpm, actions, logs, _, behavior)
-  rpm.setup({ root = root, plugins = { "alice/example" } })
-  actions.rpm_install.run({}, { plugin = "alice/example" })
+test("updates the lock only on an explicit update", function(amber, actions, logs, _, behavior)
+  amber.setup({ root = root, plugins = { "alice/example" } })
+  actions.amber_install.run({}, { plugin = "alice/example" })
   behavior.head_hash = string.rep("b", 40)
-  rpm.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
+  amber.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
   local found = false
   for _, log in ipairs(logs) do
     if log[2]:match("version spec changed") then
@@ -317,36 +323,36 @@ test("updates the lock only on an explicit update", function(rpm, actions, logs,
     end
   end
   assert(found)
-  local before = actions.rpm_status.run({}, {})["alice/example"]
+  local before = actions.amber_status.run({}, {})["alice/example"]
   assert(before.locked_commit == string.rep("a", 40) and before.lock_matches == false)
-  actions.rpm_update.run({}, { plugin = "alice/example" })
-  local after = actions.rpm_status.run({}, {})["alice/example"]
+  actions.amber_update.run({}, { plugin = "alice/example" })
+  local after = actions.amber_status.run({}, {})["alice/example"]
   assert(after.locked_commit == string.rep("b", 40) and after.lock_matches == true)
 end)
 
-test("rejects a corrupt lockfile without overwriting it", function(rpm, actions)
+test("rejects a corrupt lockfile without overwriting it", function(amber, actions)
   local path = root .. "/test-lock.json"
   local file = assert(io.open(path, "w"))
   file:write("not json")
   file:close()
-  rpm.setup({ root = root, plugins = { "alice/example" } })
-  assert(not pcall(actions.rpm_install.run, {}, { plugin = "alice/example" }))
+  amber.setup({ root = root, plugins = { "alice/example" } })
+  assert(not pcall(actions.amber_install.run, {}, { plugin = "alice/example" }))
   file = assert(io.open(path, "r"))
   assert(file:read("*a") == "not json")
   file:close()
 end)
 
-test("updates a clean detached checkout after restore", function(rpm, actions, _, calls, behavior)
-  rpm.setup({ root = root, plugins = { "alice/example" } })
-  actions.rpm_install.run({}, { plugin = "alice/example" })
+test("updates a clean detached checkout after restore", function(amber, actions, _, calls, behavior)
+  amber.setup({ root = root, plugins = { "alice/example" } })
+  actions.amber_install.run({}, { plugin = "alice/example" })
   behavior.detached = true
-  assert(actions.rpm_update.run({}, { plugin = "alice/example" }).status == "updated")
+  assert(actions.amber_update.run({}, { plugin = "alice/example" }).status == "updated")
   local checkout = called(calls, "git", "checkout")
   assert(checkout and checkout.argv[4] == "refs/remotes/origin/main")
 end)
 
 test("rejects expired operation budgets", function()
-  local git = assert(loadfile("rpm/git.lua"))(dofile("rpm/util.lua"))
+  local git = assert(loadfile("amber/git.lua"))(dofile("amber/util.lua"))
   local status, err = git.install({ local_path = false }, os.time() - 1)
   assert(not status and err:match("time budget exhausted"))
 end)

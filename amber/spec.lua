@@ -23,9 +23,9 @@ local function closest_option(key, options)
   return distance <= 2 and best or nil
 end
 
----@param spec string|RpmPluginSpec
+---@param spec string|AmberPluginSpec
 ---@param root string
----@return RpmPlugin
+---@return AmberPlugin
 local function parse(spec, root)
   if type(spec) == "string" then
     spec = { spec }

@@ -1,4 +1,4 @@
----@type RpmUtil
+---@type AmberUtil
 local util = ...
 local run = util.run
 
@@ -32,7 +32,7 @@ function M.read(path)
     return nil, "invalid lockfile: " .. tostring(err)
   end
   if type(data) ~= "table" or data.format ~= 1 or type(data.plugins) ~= "table" then
-    return nil, "invalid or unsupported RPM lockfile"
+    return nil, "invalid or unsupported Amber lockfile"
   end
   for name, entry in pairs(data.plugins) do
     if

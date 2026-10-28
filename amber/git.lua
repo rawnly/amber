@@ -1,4 +1,4 @@
----@type RpmUtil
+---@type AmberUtil
 local util = ...
 local run, exists = util.run, util.exists
 
@@ -14,7 +14,7 @@ local function timed_run(argv, opts, deadline)
   return run(argv, opts)
 end
 
----@param plugin RpmPlugin
+---@param plugin AmberPlugin
 ---@param dir string
 ---@return string? version
 ---@return string? err
@@ -115,12 +115,12 @@ local function version_status(plugin, deadline)
   return head.stdout:gsub("%s+$", "") == target.stdout:gsub("%s+$", "")
 end
 
----@param plugin RpmPlugin
+---@param plugin AmberPlugin
 ---@return string? status
 ---@return string? err
 local function install_unlocked(plugin, deadline, locked_commit)
   if plugin.local_path then
-    return nil, "local plugins are managed outside rpm"
+    return nil, "local plugins are managed outside amber"
   end
   if exists(plugin.dir .. "/.git/HEAD") then
     return "already installed"
@@ -133,7 +133,7 @@ local function install_unlocked(plugin, deadline, locked_commit)
     return nil, err
   end
   -- mktemp creates a unique sibling, so an interrupted clone never looks installed.
-  local temp, temp_err = run({ "mktemp", "-d", plugin.parent .. "/.rpm-XXXXXXXX" })
+  local temp, temp_err = run({ "mktemp", "-d", plugin.parent .. "/.amber-XXXXXXXX" })
   if not temp then
     return nil, temp_err
   end
@@ -174,7 +174,7 @@ local function install_unlocked(plugin, deadline, locked_commit)
   return "installed"
 end
 
----@param plugin RpmPlugin
+---@param plugin AmberPlugin
 ---@return string? status
 ---@return string? err
 local function install(plugin, deadline, locked_commit)
@@ -182,7 +182,7 @@ local function install(plugin, deadline, locked_commit)
     return nil, "action time budget exhausted; retry remaining plugins"
   end
   if plugin.local_path then
-    return nil, "local plugins are managed outside rpm"
+    return nil, "local plugins are managed outside amber"
   end
   if exists(plugin.dir .. "/.git/HEAD") then
     return "already installed"
@@ -191,7 +191,7 @@ local function install(plugin, deadline, locked_commit)
   if not parent then
     return nil, parent_err
   end
-  local lock = plugin.dir .. ".rpm-lock"
+  local lock = plugin.dir .. ".amber-lock"
   local locked = run({ "mkdir", "--", lock })
   if not locked then
     return nil, "installation locked: " .. lock
@@ -207,7 +207,7 @@ local function install(plugin, deadline, locked_commit)
   return status, err
 end
 
----@param plugin RpmPlugin
+---@param plugin AmberPlugin
 ---@return string? status
 ---@return string? err
 local function update(plugin, deadline)
@@ -215,7 +215,7 @@ local function update(plugin, deadline)
     return nil, "action time budget exhausted; retry remaining plugins"
   end
   if plugin.local_path then
-    return nil, "local plugins are managed outside rpm"
+    return nil, "local plugins are managed outside amber"
   end
   if not exists(plugin.dir .. "/.git/HEAD") then
     return nil, "not installed"
@@ -324,7 +324,7 @@ end
 
 local function restore(plugin, deadline, hash)
   if plugin.local_path then
-    return nil, "local plugins are managed outside rpm"
+    return nil, "local plugins are managed outside amber"
   end
   if not exists(plugin.dir .. "/.git/HEAD") then
     return install(plugin, deadline, hash)

@@ -31,7 +31,7 @@ local function exists(path)
   return false
 end
 
----@class RpmUtil
+---@class AmberUtil
 ---@field run fun(argv: string[], opts?: RexExecOptions): RexExecResult?, string?
 ---@field exists fun(path: string): boolean
 return { run = run, exists = exists }
