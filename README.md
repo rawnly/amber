@@ -155,6 +155,10 @@ Restore refuses checkouts with tracked or untracked changes. It can clone a miss
 
 Lockfile writes are serialized with a sibling `.lock` directory and written via a temporary file and rename. A killed process may leave the guard behind; after confirming no RPM action is running, remove `<lockfile>.lock` to retry. A corrupt lockfile causes actions to fail rather than overwriting it. If Git changes a checkout but writing the lockfile fails, RPM reports the error; inspect the checkout and lockfile before retrying. `rex config check` and config reload can read the lockfile to report drift, but do not create or modify it.
 
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
 ## Inspiration
 
 RPM takes inspiration from [lazy.nvim](https://github.com/folke/lazy.nvim), particularly its Lua plugin specifications, and [TPM](https://github.com/tmux-plugins/tpm), the Tmux Plugin Manager's Git-based installation workflow.
