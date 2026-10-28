@@ -134,7 +134,13 @@ RPM installs a Lua module searcher scoped to each plugin's `main` namespace, req
 
 ## Plugin authoring skill
 
-The repository includes an [agent skill](.agents/skills/rex-plugin-authoring/SKILL.md) for building and testing RPM-compatible plugins. Agents that discover project skills can use it when working in this repository. To use it while working in a separate plugin repository, copy the `rex-plugin-authoring` directory into that repository's `.agents/skills/` directory or your agent's user-level skills directory. Reload the agent's skills if needed.
+Install the [Rex plugin authoring skill](.agents/skills/rex-plugin-authoring/SKILL.md) in your agent environment with [Skills CLI](https://skills.sh/):
+
+```sh
+npx skills add rawnly/rpm --skill rex-plugin-authoring
+```
+
+It provides guidance for building and testing RPM-compatible plugins. Reload your agent's skills if needed.
 
 ## Versions
 
