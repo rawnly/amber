@@ -176,13 +176,18 @@ test(
   end
 )
 
-test("installs a missing plugin and publishes its checkout", function(rpm, actions, _, _, behavior)
-  behavior.clone_success = true
-  rpm.setup({ root = root, install = "manual", plugins = { { "bob/new", version = "~1.2.0" } } })
-  assert(actions.rpm_install.run({}, { plugin = "bob/new" }).status == "installed")
-  local head = assert(io.open(root .. "/bob/new/.git/HEAD", "r"))
-  head:close()
-end)
+test(
+  "installs a missing plugin and publishes its checkout",
+  function(rpm, actions, _, calls, behavior)
+    behavior.clone_success = true
+    rpm.setup({ root = root, install = "manual", plugins = { { "bob/new", version = "~1.2.0" } } })
+    assert(actions.rpm_install.run({}, { plugin = "bob/new" }).status == "installed")
+    local checkout = called(calls, "git", "checkout")
+    assert(checkout and checkout.argv[4] == "v1.2.0")
+    local head = assert(io.open(root .. "/bob/new/.git/HEAD", "r"))
+    head:close()
+  end
+)
 
 test("selects caret ranges in major version zero", function(rpm, actions, _, calls, behavior)
   behavior.tags = "v0.2.0\nv0.2.8\nv0.3.0\n"
