@@ -127,3 +127,7 @@ Specify a Git tag or commit, or a simple semver range:
 For `^` and `~`, the manager selects the highest matching stable `1.2.3` or `v1.2.3` Git tag at install or update. Three numeric components are required; prereleases, wildcard ranges, and other lazy.nvim version expressions are not supported. Caret ranges follow semver's special rules for major version zero. Exact versions are Git refs (use the tag's `v` prefix if present). Versions check out detached; updates fetch tags and re-resolve the constraint. They do not change an existing checkout until `rpm_update` is run. Versions are not supported for local `path` plugins. There is no lockfile, so ranges may resolve differently over time.
 
 This first version does not provide lockfiles, dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory; it is not treated as an installed plugin.
+
+## Inspiration
+
+RPM takes inspiration from [lazy.nvim](https://github.com/folke/lazy.nvim), particularly its Lua plugin specifications, and [TPM](https://github.com/tmux-plugins/tpm), the Tmux Plugin Manager's Git-based installation workflow.
