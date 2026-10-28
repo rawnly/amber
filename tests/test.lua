@@ -97,6 +97,7 @@ rpm.setup({ root = root, plugins = { { "alice/example", version = ">=1.0.0" } } 
 assert(logs[#logs][2]:match("invalid version"))
 rpm.setup({ root = root, plugins = { "carol/shared" } })
 assert(_G.shared_source == "rex")
+assert(not pcall(require, "shared.missing"))
 rpm.setup({ root = root, install = "manual", plugins = { "alice/example", "bob/example" } })
 assert(logs[#logs][2]:match("duplicate"))
 rpm.setup({ root = root, install = "manual", plugins = { { "alice/example", entry = "init.lua" } } })

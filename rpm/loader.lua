@@ -4,21 +4,29 @@ local exists = util.exists
 local module_roots = {}
 
 local function plugin_searcher(name)
-  for main, root in pairs(module_roots) do
-    if name == main or name:sub(1, #main + 1) == main .. "." then
-      local relative = name:gsub("%.", "/")
-      for _, path in ipairs({
-        root .. "/" .. relative .. ".lua",
-        root .. "/" .. relative .. "/init.lua",
-      }) do
-        if exists(path) then
-          return assert(loadfile(path))
-        end
-      end
-      return "\n\trpm: module " .. name .. " not found in " .. root
+  local owner, root
+  for main, candidate in pairs(module_roots) do
+    if
+      (name == main or name:sub(1, #main + 1) == main .. ".") and (not owner or #main > #owner)
+    then
+      owner, root = main, candidate
     end
   end
-  return "\n\trpm: no plugin owns " .. name
+  if not root then
+    return "\n\trpm: no plugin owns " .. name
+  end
+  local relative = name:gsub("%.", "/")
+  for _, path in ipairs({
+    root .. "/" .. relative .. ".lua",
+    root .. "/" .. relative .. "/init.lua",
+  }) do
+    if exists(path) then
+      return assert(loadfile(path))
+    end
+  end
+  return function()
+    error("rpm: module " .. name .. " not found in " .. root, 0)
+  end
 end
 
 table.insert(package.loaders, 2, plugin_searcher)
@@ -105,6 +113,9 @@ local function load_plugin(plugin)
   end
 
   local ok, load_err = pcall(function()
+    if package.loaded[plugin.main] and module_roots[plugin.main] ~= lua_dir then
+      error("module " .. plugin.main .. " is already loaded from another source", 0)
+    end
     module_roots[plugin.main] = lua_dir
     local module = require(plugin.main)
     assert(
