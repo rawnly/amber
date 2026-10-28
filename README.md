@@ -1,87 +1,113 @@
 # Rex Plugin Manager
 
-A small GitHub plugin manager for Rex. Plugins are Lua modules installed on the machine running the Rex server. Requires Git and the macOS/Linux `mkdir`, `mktemp`, `mv`, and `rm` utilities.
+RPM installs GitHub Lua plugins on the machine running the Rex server and loads them from your Rex config.
 
-## Installation
+- Plugin specs in Lua, in the style of lazy.nvim.
+- Semver versions and a lockfile for reproducible installs.
+- An agent skill for writing RPM plugins.
 
-On the Unix-like machine running the Rex server (macOS or Linux), install RPM with Git and a POSIX shell:
+## Quick start
+
+Requires Git, a POSIX shell, and macOS or Linux. Run on the Rex server machine.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rawnly/rpm/main/install.sh | sh
 ```
 
-To inspect the installer before running it, download `install.sh` from the repository and run `sh install.sh` instead. It clones RPM to `~/.local/share/rex/rpm` without changing your Rex config or installing plugins. It refuses to overwrite an existing installation. To choose a different absolute path, download the script and run `RPM_INSTALL_DIR=/absolute/path/to/rpm sh install.sh`.
+This clones RPM to `~/.local/share/rex/rpm`. It does not touch your Rex config and refuses to overwrite an existing directory. To inspect it first, download `install.sh` and run `sh install.sh`. To use another absolute path, run `RPM_INSTALL_DIR=/absolute/path sh install.sh`.
 
-Alternatively, clone RPM yourself:
-
-```sh
-mkdir -p "$HOME/.local/share/rex"
-git clone https://github.com/rawnly/rpm.git "$HOME/.local/share/rex/rpm"
-```
-
-Then load it from your Rex config (`~/.config/rex/init.lua` by default). This example installs the Rex-side actions from [smart-splits-backend-rex](https://github.com/rawnly/smart-splits-backend-rex). Using them with Neovim also requires the Neovim plugin and separate Rex key bindings; see the backend's README.
+Add to your Rex config (`~/.config/rex/init.lua` by default):
 
 ```lua
 local rpm = dofile(os.getenv("HOME") .. "/.local/share/rex/rpm/rex_plugin_manager.lua")
 
 rpm.setup({
   plugins = {
-    {
-      "rawnly/smart-splits-backend-rex",
-      main = "smart-splits-rex",
-      opts = { resize_amount = 3 },
-    },
+    { "rawnly/smart-splits-backend-rex", main = "smart-splits-rex", opts = { resize_amount = 3 } },
   },
 })
 ```
 
-If you cloned RPM elsewhere, change the path accordingly. RPM does not install plugins during configuration loading or `rex config check`. Check and reload the config to register RPM's actions, install the plugins, then reload again to load them:
+This registers the Rex actions of [smart-splits-backend-rex](https://github.com/rawnly/smart-splits-backend-rex). It adds no key bindings. For Neovim you also need its Neovim plugin; see its README.
+
+Config load and `rex config check` never install anything. Install explicitly, then reload:
 
 ```sh
-rex config check
 rex config reload
 rex do rpm_install
 rex config reload
 ```
 
-Update with `rex do rpm_update plugin=rawnly/smart-splits-backend-rex`, then reload. Unversioned updates on a branch use `git pull --ff-only`; versioned updates fetch and resolve the configured version. Failures are reported without resetting local changes. `rex do rpm_install` attempts all enabled managed plugins sequentially and reports failures as an action error; `rex do rpm_install plugin=owner/repo` targets one. Rex actions have a time limit; RPM limits Git operation time and reports when its action budget is exhausted. Retry or install plugins individually. Git authentication must work non-interactively; terminal prompts are disabled.
+The first reload registers RPM's actions. The second loads the installed plugins.
 
-By default plugins live at `$XDG_DATA_HOME/rex/plugins/<owner>/<repo>`, or `~/.local/share/rex/plugins/<owner>/<repo>` if `XDG_DATA_HOME` is unset. Override with `root = "/absolute/path"` in `setup`; relative paths and `~` are not expanded. Only GitHub `owner/repo` shorthand is supported for fetching. Plugins load in declaration order; missing plugins and load errors are logged and do not stop other plugins loading.
+## Commands
 
-For development or repositories that contain both Neovim and Rex code, specify an absolute local checkout and its Rex module name:
+Run with `rex do <action>`. Add `plugin=owner/repo` to target one plugin. Without it, an action covers all enabled, managed plugins, one after another. Reload after install, update, or restore.
+
+| Action | What it does |
+| --- | --- |
+| `rpm_install` | Clones missing plugins. Uses the locked commit if one exists. Records new commits in the lockfile. |
+| `rpm_update` | Resolves the newest commit or version, checks it out, rewrites the lock entry. Unversioned: `git pull --ff-only`. Versioned: fetch tags, check out detached. Never resets local changes. |
+| `rpm_restore` | Checks out the locked commit (detached). Refuses dirty checkouts. Fails if the commit is unavailable. |
+| `rpm_status` | Shows load status, errors, path, commit, lock match, and version match. Does not fetch. |
+
+`rpm_status` takes no `plugin` argument. Load failures also go to `rex.log`; see [Rex logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs).
+
+## Plugin spec
+
+A plugin is `"owner/repo"` or a table whose first element is that name. Unknown options are rejected.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `main` | repo name without trailing `.rex` | Lua module to `require`. Dots map to directories. |
+| `opts` | `{}` | Table passed to `setup`. |
+| `version` | default branch | Tag, commit, branch, `^1.2.3`, or `~1.2.3`. Not allowed with `path`. |
+| `path` | none | Absolute path to a local checkout. Never installed, updated, or locked. |
+| `enabled` | `true` | `false` skips loading and rejects actions for it. |
+
+Options for `rpm.setup` itself:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `root` | `$XDG_DATA_HOME/rex/plugins`, else `~/.local/share/rex/plugins` | Absolute install directory. Plugins go in `<root>/<owner>/<repo>`. No `~` expansion. |
+| `lockfile` | `rpm-lock.json` next to `$REX_CONFIG`, else `$XDG_CONFIG_HOME/rex/rpm-lock.json`, else `~/.config/rex/rpm-lock.json` | Absolute file path on the server. |
+| `plugins` | `{}` | Ordered list of specs. Plugins load in this order. |
+
+Invalid specs, duplicate plugins, and duplicate enabled `main` names are logged and skipped.
+
+For development, point `path` at a local checkout:
 
 ```lua
-{ "rawnly/smart-splits-backend-rex",
-  path = "/absolute/path/to/smart-splits-backend-rex",
-  main = "smart-splits-rex",
-  opts = { resize_amount = 3 },
-}
+{ "rawnly/smart-splits-backend-rex", path = "/absolute/path/to/smart-splits-backend-rex", main = "smart-splits-rex" }
 ```
 
-`path` checkouts are managed externally: install and update actions will not modify them. `main` is the Lua module name and defaults to the repository name, with a trailing `.rex` removed. Dots in the module name denote Lua module directories.
+## Versions and lockfile
 
-Use `rex do rpm_status` to inspect declared plugins, their load status, errors, paths, versions, and available Git commits. RPM also writes load failures with `rex.log`; log locations depend on server mode (see [Rex shared-server logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs)). The status reports the current config load, the locked commit and whether the checkout matches it, and for versioned managed plugins compares the checkout with the locally resolved version. `version_matches = false` means an update is needed; `version_error` means RPM could not resolve or compare it. Status does not fetch new tags or branches. Use `rex do rpm_update` to update all enabled managed plugins, or pass `plugin=owner/repo` to update one. Actions share a bounded time budget and can be retried if it is exhausted.
+```lua
+{ "alice/rex-projects", version = "v1.2.0" },    -- exact tag, commit, or branch
+{ "bob/rex-workspaces", version = "^1.2.0" },    -- highest stable 1.x.y tag
+{ "carol/rex-tools", version = "~1.2.0" },       -- highest stable 1.2.x tag
+```
 
-Set `enabled = false` on any plugin specification to skip loading it without removing the declaration or its files. Disabled plugins produce no missing-plugin warning and cannot be installed or updated through manager actions. Re-enable it by setting `enabled = true` (or removing the field), then run `rex config reload`.
+- `^` and `~` need three numeric parts. They match `1.2.3` and `v1.2.3` tags. Prereleases and wildcards are not supported.
+- Tags win over branches of the same name. Branches resolve to `origin/<branch>`.
+- Changing `version` does not move an existing checkout. Run `rpm_update`.
 
-## Development
-
-Install [mise](https://mise.jdx.dev/), then install the configured tools and Git hooks:
+RPM records exact commits in the lockfile. The file is JSON and safe to commit. The lock is authoritative: `rpm_install` and `rpm_restore` use it until you run `rpm_update`. Install never replaces an existing entry. Unrelated entries are kept and nothing is pruned.
 
 ```sh
-mise trust
-mise install
-mise exec -- lefthook install
-mise run check
+rex do rpm_restore                           # all enabled managed plugins
+rex do rpm_restore plugin=owner/repo         # one plugin
+rex config reload
 ```
 
-`mise run test` runs the Lua 5.1 and installer tests using temporary fixtures. `mise run fmt` formats Lua and shell files, `mise run fmt:check` checks formatting without changes, `mise run lint` runs ShellCheck, and `mise run types` runs Lua Language Server diagnostics. `mise run check` runs those checks and validates Lua syntax. Rex is not required for these tests.
+Config load only reads the lockfile to warn about drift. A malformed lockfile makes actions fail; RPM never overwrites it.
 
-Once installed, Lefthook runs the full check against the working tree before each commit and validates its configuration when `lefthook.yml` is staged. The `commit-msg` hook checks the commit message with `typos` after stripping Git's comments. CI runs the same `mise run check`.
+## Writing a plugin
 
-## Plugin contract
+RPM looks for the module in `rex/lua/` if that directory exists, otherwise `lua/`. It never falls back to `lua/` when `rex/lua/` exists. The module must return a table with `setup(opts)`. `setup` runs on every config load, so register actions and bindings there.
 
-RPM looks for modules in `rex/lua/` if that directory exists, otherwise in `lua/`. The selected directory is exclusive: if the module is missing from `rex/lua/`, RPM does not fall back to `lua/`. For example, a plugin named `example` can provide `lua/example/init.lua`:
+`lua/example/init.lua`:
 
 ```lua
 local M = {}
@@ -99,51 +125,50 @@ end
 return M
 ```
 
-RPM installs a Lua module searcher scoped to each plugin's `main` namespace, requires the `main` module, and calls `setup(opts)` without adding unrelated plugin files to `package.path`. Users can subsequently call its public API with `require("example")`. Lua's module namespace and `package.loaded` cache are shared: choose a unique module name. RPM rejects duplicate enabled `main` names but cannot prevent collisions with unrelated Lua modules. `setup` runs on every Rex config load and receives the declaration's `opts` table (empty by default). Register actions and bindings there, not later inside an action. Metadata is optional and informational. Plugins execute arbitrary Lua with the Rex server's privileges; only install repositories you trust. Rex config checks also load plugins, so plugin setup should avoid side effects beyond configuration.
+- Pick a unique module name. The Lua module namespace and `package.loaded` are shared.
+- Plugins are trusted Lua code with the Rex server's privileges. They are not sandboxed.
+- Config checks run `setup` too. Avoid side effects beyond configuration.
 
-## Plugin authoring skill
-
-Install the [Rex plugin authoring skill](.agents/skills/rex-plugin-authoring/SKILL.md) in your agent environment with [Skills CLI](https://skills.sh/):
+Install the [authoring skill](.agents/skills/rex-plugin-authoring/SKILL.md) for your agent:
 
 ```sh
 npx skills add rawnly/rpm --skill rex-plugin-authoring
 ```
 
-It provides guidance for building and testing RPM-compatible plugins. Reload your agent's skills if needed.
+## Limitations
 
-## Versions
+- Alpha. Expect changes.
+- macOS and Linux only. Needs `git`, `mkdir`, `mktemp`, `mv`, `rm`.
+- GitHub `owner/repo` only. No other Git URLs.
+- No dependency resolution.
+- No lazy loading.
+- No uninstall. Remove the declaration and delete the directory yourself.
 
-Specify a Git tag or commit, or a simple semver range:
+## Troubleshooting
 
-```lua
-{ "alice/rex-projects", version = "v1.2.0" }, -- exact Git tag
-{ "bob/rex-workspaces", version = "^1.2.0" }, -- latest stable 1.x tag
-{ "carol/rex-tools", version = "~1.2.0" }, -- latest stable 1.2.x tag
-```
+| Problem | Fix |
+| --- | --- |
+| Interrupted install left `.rpm-*` directories or `<plugin>.rpm-lock` | They are not treated as installed. Confirm no install is running, then delete them and retry. |
+| Lockfile guard `<lockfile>.lock` left behind | Confirm no RPM action is running, delete the directory, retry. |
+| "action time budget exhausted" | Rex actions have a short deadline, so RPM stops after about 23 seconds. Retry, or target plugins with `plugin=owner/repo`. |
+| Git fails on auth | Prompts are disabled (`GIT_TERMINAL_PROMPT=0`). Use credentials that work non-interactively. |
+| Lockfile error | The file is corrupt. Fix or remove it. RPM will not overwrite it. |
+| Checkout changed but lock write failed | Inspect the checkout and lockfile before retrying. |
+| `checkout differs from lockfile` warning | Run `rpm_restore`. It refuses dirty checkouts. |
 
-For `^` and `~`, the manager selects the highest matching stable `1.2.3` or `v1.2.3` Git tag at install or update. Three numeric components are required; prereleases, wildcard ranges, and other lazy.nvim version expressions are not supported. Caret ranges follow semver's special rules for major version zero. Exact versions are Git refs (use the tag's `v` prefix if present). Tags take precedence over remote branches of the same name; branch names resolve to the fetched `origin` branch. Versions check out detached; updates fetch tags and re-resolve the constraint. They do not change an existing checkout until `rpm_update` is run. Versions are not supported for local `path` plugins.
-
-This first version does not provide dependency resolution, lazy loading, uninstall, arbitrary Git URLs, or Windows support. A failed or interrupted install can leave a `.rpm-*` temporary directory or a sibling `.rpm-lock` directory. They are not treated as installed plugins. After confirming no install is still running, remove a stale lock to retry.
-
-## Lockfile
-
-RPM records exact Git commits in `rpm-lock.json` alongside the config file specified by `REX_CONFIG`, if set to a path with a directory. Otherwise it uses `$XDG_CONFIG_HOME/rex/rpm-lock.json`, or `~/.config/rex/rpm-lock.json` by default. Set `lockfile = "/absolute/path/rpm-lock.json"` in `rpm.setup` to override it; the path is on the Rex server. The lockfile is JSON and may be committed alongside your config.
-
-`rex do rpm_install` uses an existing locked commit for missing plugins. If a plugin has no entry, a successful install records its commit; running install on an already installed checkout records its current commit without changing it. Existing lock entries are never replaced by install. `rex do rpm_update` explicitly resolves and records a new commit. Changing `version` alone does not update the lock; RPM warns until you run update.
+## Contributing
 
 ```sh
-rex do rpm_restore                          # restore all enabled managed plugins
-rex do rpm_restore plugin=owner/repository   # restore one
-rex config reload
+mise trust && mise install
+mise exec -- lefthook install   # git hooks
+mise run check                  # fmt:check, lint, test, types, luac
 ```
 
-Restore refuses checkouts with tracked or untracked changes. It can clone a missing checkout, but fails if Git cannot obtain the locked commit; it does not silently choose another. Restoring checks out a detached commit. For an unversioned plugin, a later update fetches the origin default branch and advances only if the checkout is clean and can be fast-forwarded. Local `path` plugins are never locked or restored; disabled and removed plugins' entries are preserved. RPM does not automatically prune entries.
-
-Lockfile writes are serialized with a sibling `.lock` directory and written via a temporary file and rename. A killed process may leave the guard behind; after confirming no RPM action is running, remove `<lockfile>.lock` to retry. A corrupt lockfile causes actions to fail rather than overwriting it. If Git changes a checkout but writing the lockfile fails, RPM reports the error; inspect the checkout and lockfile before retrying. `rex config check` and config reload can read the lockfile to report drift, but do not create or modify it.
+Also: `mise run fmt`, `mise run test`. Tests stub Rex and Git. Rex is not required. See [docs/architecture.md](docs/architecture.md).
 
 ## Editor completion
 
-For completion and diagnostics in your Rex `init.lua`, configure [Lua Language Server](https://luals.github.io/) in your editor. Add a `.luarc.json` to your Rex config workspace (typically `~/.config/rex/`), replacing `/home/you` with your home directory:
+Unverified: not yet tested in an editor. Add a `.luarc.json` to your Rex config directory, with your home directory in place of `/home/you`:
 
 ```json
 {
@@ -153,27 +178,12 @@ For completion and diagnostics in your Rex `init.lua`, configure [Lua Language S
 }
 ```
 
-Use the `types` directory in your RPM checkout on the editor's machine. If you already have a `.luarc.json`, merge these settings into it. Open the Rex config directory as the editor workspace so Lua Language Server reads the file.
-
-Because `dofile` uses a runtime path, annotate its result in `init.lua`:
-
-```lua
----@type RpmModule
-local rpm = dofile(os.getenv("HOME") .. "/.local/share/rex/rpm/rex_plugin_manager.lua")
-
-rpm.setup({
-  plugins = {
-    { "rawnly/smart-splits-backend-rex", main = "smart-splits-rex", enabled = true },
-  },
-})
-```
-
-The annotations describe RPM's options; they do not change runtime behavior. The bundled `types/rex.lua` declarations cover only the Rex API used by RPM, not the complete Rex API. This external-workspace setup has not yet been verified in an editor.
-
-## License
-
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Annotate the result of `dofile` with `---@type RpmModule`. `types/rex.lua` covers only the Rex API RPM uses.
 
 ## Inspiration
 
-RPM takes inspiration from [lazy.nvim](https://github.com/folke/lazy.nvim), particularly its Lua plugin specifications, and [TPM](https://github.com/tmux-plugins/tpm), the Tmux Plugin Manager's Git-based installation workflow.
+[lazy.nvim](https://github.com/folke/lazy.nvim) for specs, [TPM](https://github.com/tmux-plugins/tpm) for Git-based installs.
+
+## License
+
+[Apache License 2.0](LICENSE).

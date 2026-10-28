@@ -1,6 +1,6 @@
 # Architecture
 
-Rex Plugin Manager (RPM) is a Lua 5.1 module loaded by the Rex server's configuration. It turns plugin declarations into local paths, loads their Rex-side Lua entry points, and registers actions for installing and updating GitHub repositories. The entry point is `rex_plugin_manager.lua`; `rpm/spec.lua` validates specs, `rpm/git.lua` handles Git operations, `rpm/lock.lua` manages the lockfile, `rpm/loader.lua` registers actions and loads plugins, and `rpm/util.lua` contains shared command and filesystem helpers.
+Rex Plugin Manager (RPM) is a Lua 5.1 module loaded by the Rex server's configuration. It turns plugin declarations into local paths, loads their Rex-side Lua entry points, and registers actions for installing, updating, restoring, and inspecting GitHub repositories. The entry point is `rex_plugin_manager.lua`; `rpm/spec.lua` validates specs, `rpm/git.lua` handles Git operations, `rpm/lock.lua` manages the lockfile, `rpm/loader.lua` registers actions and loads plugins, and `rpm/util.lua` contains shared command and filesystem helpers.
 
 ## Execution model
 
@@ -8,12 +8,14 @@ Rex Plugin Manager (RPM) is a Lua 5.1 module loaded by the Rex server's configur
 Rex config load / check / reload
   └─ rpm.setup(config)
        ├─ validate and normalize plugin specifications
-       ├─ register rpm_install and rpm_update actions
+       ├─ register rpm_install, rpm_update, rpm_restore, and rpm_status actions
        └─ load enabled entry points, in declaration order
             └─ require(main).setup(opts)
 
 Later: rex do rpm_install [plugin=owner/repo]
-       rex do rpm_update  plugin=owner/repo
+       rex do rpm_update  [plugin=owner/repo]
+       rex do rpm_restore [plugin=owner/repo]
+       rex do rpm_status
   └─ Rex invokes the corresponding registered action
        └─ RPM runs Git and filesystem commands via rex.exec
 ```
@@ -24,7 +26,7 @@ Rex configuration runs on the server machine. RPM, local plugin paths, Git, and 
 
 ## Configuration and normalized plugins
 
-`setup` accepts `root` and an ordered `plugins` list. Each element is either an `owner/repo` string or a table whose first element is that name. A table can also specify:
+`setup` accepts `root`, `lockfile`, and an ordered `plugins` list. `install` may be omitted or `"manual"`; any other value is logged as an error and setup stops. Each element is either an `owner/repo` string or a table whose first element is that name. A table can also specify:
 
 | Field | Purpose |
 | --- | --- |
@@ -73,6 +75,6 @@ Operations serialize lockfile read-modify-write with a sibling `.lock` directory
 
 ## Development and verification
 
-`mise.toml` pins Lua 5.1 and StyLua. `mise run check` runs formatting checks, Lua syntax validation, and `scripts/test.sh`; the script creates a temporary fixture for `tests/test.lua`. Tests stub Rex APIs and Git responses, so they do not prove live Git operations or Rex pane behavior. The README documents setup and task commands.
+`mise.toml` pins Lua 5.1, StyLua, Lua Language Server, ShellCheck, shfmt, Lefthook, and typos. `mise run check` runs formatting checks (StyLua, shfmt), ShellCheck, the tests (`scripts/test.sh` and `scripts/test-install.sh`), Lua Language Server diagnostics, and Lua syntax validation with `luac`; `scripts/test.sh` creates a temporary fixture for `tests/test.lua`. Tests stub Rex APIs and Git responses, so they do not prove live Git operations or Rex pane behavior. The README documents setup and task commands.
 
 Current non-goals include dependency resolution, lazy loading, uninstall, arbitrary remote URLs, and Windows support. These are not implied by the current module contract.
