@@ -7,7 +7,7 @@ A small GitHub plugin manager for Rex. Plugins are Lua modules installed on the 
 Clone this repository anywhere on the Rex server, then load the manager by absolute path from your Rex config (`~/.config/rex/init.lua` by default). This example uses [smart-splits-backend-rex](https://github.com/rawnly/smart-splits-backend-rex), which connects Neovim's smart-splits with Rex pane navigation:
 
 ```lua
-local rpm = dofile(os.getenv("HOME") .. "/path/to/rex-plugin-manager/rex_plugin_manager.lua")
+local rpm = dofile("/absolute/path/to/rex-plugin-manager/rex_plugin_manager.lua")
 
 rpm.setup({
   plugins = {
@@ -57,12 +57,12 @@ For completion and diagnostics in your Rex `init.lua`, configure [Lua Language S
 ```json
 {
   "runtime.version": "Lua 5.1",
-  "workspace.library": ["/absolute/path/to/rex-plugin-manager"],
+  "workspace.library": ["/absolute/path/to/rex-plugin-manager/types"],
   "diagnostics.globals": ["rex"]
 }
 ```
 
-Replace the library path with the location of your manager checkout on the **editor's** machine. If you already have a `.luarc.json`, merge these settings into it. Open the Rex config directory as the editor workspace so Lua Language Server reads the file.
+Replace the library path with the `types` directory in your manager checkout on the **editor's** machine. If you already have a `.luarc.json`, merge these settings into it. Open the Rex config directory as the editor workspace so Lua Language Server reads the file.
 
 Because `dofile` uses a runtime path, annotate its result in `init.lua`:
 
