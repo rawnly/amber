@@ -89,14 +89,24 @@ For development, point `path` at a local checkout:
 One repository can carry several plugins. Set `subdir` to the path each plugin loads from, relative to the repository root; `main` is required because the repository-name default cannot resolve inside a subdirectory.
 
 ```lua
-{ "me/menu-rex-extensions", subdir = "panes/roadmap", main = "agent-roadmap" },
-{ "me/menu-rex-extensions", subdir = "panes/typing", main = "key-strip", version = "^1.2.0" },
+--- The monorepo plugins for this host, each loading from its own directory.
+---@type AmberPluginSpec[]
+local subdir_plugins = {
+  { "me/menu-rex-extensions", subdir = "panes/roadmap", main = "agent-roadmap" },
+  { "me/menu-rex-extensions", subdir = "panes/typing", main = "key-strip", version = "^1.2.0" },
+}
+
+amber.setup({
+  root = "/absolute/path/to/plugins",
+  plugins = subdir_plugins,
+})
 ```
 
 - Identity: name, lockfile key, status, and per-plugin action targets are `me/repo@subdir`.
-- Installs: each entry gets its own full clone under `<root>/<owner>/<repo>--<subdir>` (with `/` mapped to `--` and other symbols to `-`). Two subdirs of one repo can sit on different commits or versions.
-- Modules resolve inside the subdirectory's own `rex/lua` (`lua/` fallback), so two subdir plugins are invisible to each other unless they deliberately share a main namespace.
+- Installs: each entry gets its own full clone under `<root>/<owner>/<repo>--<subdir>` (with `/` mapped to `-` and other symbols to `-`). Two subdirs of one repo can sit on different commits or versions. If two entries (or one entry and a plain repository) resolve to the same directory, setup reports a duplicate location.
+- Modules resolve inside the subdirectory's own `rex/lua` (`lua/` fallback), so two subdir plugins are only isolated by the searcher's main-namespace scope, not by anything stronger; a missing subdirectory after install reports a `missing` load status naming the subdir.
 - `path` combines with `subdir`: local checkout plus module offset.
+- Bulk operations share the action budget: several large subdirs of one monorepo can hit "action time budget exhausted" during `amber_install`; use per-plugin install (`plugin=me/repo@subdir`) for those.
 
 ## Versions and lockfile
 

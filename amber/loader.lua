@@ -97,9 +97,17 @@ local function load_plugin(plugin)
   if plugin.subdir and plugin.subdir ~= "" then
     source_dir = plugin.dir .. "/" .. plugin.subdir
   end
+  local relative = plugin.main:gsub("%.", "/")
+  if plugin.subdir and plugin.subdir ~= "" and not exists(source_dir) then
+    -- A missing subdirectory deserves its own message: the plugin decides
+    -- to load from a checkout path that is not present at all.
+    plugin.load_status, plugin.load_error =
+      "missing", "subdir " .. plugin.subdir .. " not found in " .. plugin.dir
+    rex.log("error", "amber: " .. plugin.name .. ": " .. plugin.load_error)
+    return
+  end
   local rex_dir = source_dir .. "/rex/lua"
   local lua_dir = exists(rex_dir) and rex_dir or (source_dir .. "/lua")
-  local relative = plugin.main:gsub("%.", "/")
   if
     not exists(lua_dir .. "/" .. relative .. ".lua")
     and not exists(lua_dir .. "/" .. relative .. "/init.lua")

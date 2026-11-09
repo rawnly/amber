@@ -297,7 +297,7 @@ test("loads a subdir plugin from its own module root", function(amber, actions)
   assert(not pcall(require, "utility"), "the repo-root module must not resolve")
   local report = actions.amber_status.run({}, {})
   local row = report["elly/utility@panes/tools"]
-  assert(row and row.subdir == "panes/tools" and row.path == root .. "/elly/utility--panes--tools")
+  assert(row and row.subdir == "panes/tools" and row.path == root .. "/elly/utility--panes-tools")
 end)
 
 test("requires main for subdir plugins", function(amber, _, logs)
@@ -342,22 +342,82 @@ test(
         move = call
       end
     end
-    assert(move and move.argv[5] == root .. "/elly/other--panes--bells")
-    local head = assert(io.open(root .. "/elly/other--panes--bells/.git/HEAD", "r"))
+    assert(move and move.argv[5] == root .. "/elly/other--panes-bells")
+    local head = assert(io.open(root .. "/elly/other--panes-bells/.git/HEAD", "r"))
     head:close()
   end
 )
 
-test("reports duplicate sanitized install locations", function(amber, _, logs)
+test("reports duplicate dirs: sanitized collision and plain repo", function(amber, _, logs)
+  -- A plain repository whose name already carries the sanitized suffix
+  -- collides with the sibling that owns `subdir`.
   amber.setup({
     root = root,
     install = "manual",
     plugins = {
-      { "elly/utility", subdir = "panes--tools", main = "chimes" },
+      { "elly/utility--panes-tools", main = "chimes" },
       { "elly/utility", subdir = "panes/tools", main = "tools" },
     },
   })
   assert(logs[1][2]:match("duplicate install location"))
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+      { "elly/utility", subdir = "panes/tools", main = "mirror" },
+    },
+  })
+  assert(logs[#logs][2]:match("duplicate plugin"))
+end)
+
+test("suggests subdir for near-miss option names", function(amber, _, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "elly/utility", subdirt = "panes/tools", main = "tools" } },
+  })
+  assert(logs[1][2]:match("did you mean subdir"))
+end)
+
+test(
+  "a plain repo and a subdir plugin of one repo coexist with separate locks",
+  function(amber, actions, _, calls, behavior)
+    behavior.clone_success = true
+    behavior.temp = "temporary3"
+    amber.setup({
+      root = root,
+      install = "manual",
+      plugins = {
+        { "elly/utility" },
+        { "elly/monorepo", subdir = "panes/tools", main = "tools" },
+      },
+    })
+    assert(actions.amber_install.run({}, { plugin = "elly/utility" }).status == "installed")
+    behavior.temp = "temporary4"
+    assert(
+      actions.amber_install.run({}, { plugin = "elly/monorepo@panes/tools" }).status == "installed"
+    )
+    local report = actions.amber_status.run({}, {})
+    assert(report["elly/utility"] and report["elly/monorepo@panes/tools"])
+    assert(
+      #report["elly/utility"].commit == 40 and #report["elly/monorepo@panes/tools"].commit == 40
+    )
+  end
+)
+
+test("marks a missing subdirectory and names it", function(amber, actions)
+  amber.setup({
+    root = root,
+    plugins = { { "alice/example", path = root .. "/bob", subdir = "gone", main = "tools" } },
+  })
+  local row = actions.amber_status.run({}, {})["alice/example@gone"]
+  assert(row and row.loaded == "missing" and row.error:match("subdir gone not found"))
+end)
+
+test("rejects unknown plugin names for targeted actions", function(amber, actions)
+  amber.setup({ root = root, install = "manual", plugins = { "elly/utility" } })
+  assert(not pcall(actions.amber_install.run, {}, { plugin = "bob/none" }))
 end)
 
 test(

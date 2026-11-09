@@ -23,11 +23,12 @@ local function closest_option(key, options)
   return distance <= 2 and best or nil
 end
 
--- Map a subdirectory to its install-directory suffix. Slashes become --
--- (the separator) and remaining symbols become - ; collisions between
--- different subdirs are reported by the duplicate-location check at setup.
+-- Map a subdirectory to its install-directory suffix: a single path
+-- segment where slashes become - and other symbols become - too.
+-- Collisions between different subdirs resolve to the same directory
+-- and are rejected by the duplicate-location check at setup.
 local function sanitize_subdir(subdir)
-  return (subdir:gsub("/", "--"):gsub("[^%w%.%-]", "-"))
+  return (subdir:gsub("/", "-"):gsub("[^%w%.%-]", "-"))
 end
 
 ---@param spec string|AmberPluginSpec
@@ -76,7 +77,7 @@ local function parse(spec, root)
   if subdir ~= nil then
     assert(type(subdir) == "string" and #subdir > 0, "invalid subdir: " .. tostring(subdir))
     assert(
-      subdir:sub(1, 1) ~= "/" and subdir:sub(-1) ~= "/",
+      subdir:sub(1, 1) ~= "/" and subdir:sub(-1) ~= "/" and not subdir:find("//", 1, true),
       "subdir must be relative to the repository root: " .. tostring(subdir)
     )
     for segment in subdir:gmatch("[^/]+") do
