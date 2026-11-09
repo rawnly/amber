@@ -42,7 +42,7 @@ function M.setup(config)
     return
   end
 
-  local plugins, by_name, modules = {}, {}, {}
+  local plugins, by_name, modules, by_dir = {}, {}, {}, {}
   for _, spec in ipairs(config.plugins or {}) do
     local ok, plugin = pcall(parse, spec, root)
     if not ok then
@@ -52,9 +52,14 @@ function M.setup(config)
         "error",
         "amber: duplicate plugin or main module: " .. plugin.name .. " (" .. plugin.main .. ")"
       )
+    elseif plugin.enabled and not plugin.local_path and by_dir[plugin.dir] then
+      rex.log("error", "amber: duplicate install location: " .. plugin.dir)
     else
       if plugin.enabled then
         modules[plugin.main] = true
+      end
+      if plugin.enabled and not plugin.local_path then
+        by_dir[plugin.dir] = true
       end
       by_name[plugin.name] = plugin
       plugins[#plugins + 1] = plugin
@@ -131,6 +136,7 @@ function M.setup(config)
         result[plugin.name] = {
           enabled = plugin.enabled,
           path = plugin.dir,
+          subdir = plugin.subdir,
           local_path = plugin.local_path,
           installed = plugin.local_path and util.exists(plugin.dir)
             or util.exists(plugin.dir .. "/.git/HEAD"),

@@ -77,4 +77,8 @@ Operations serialize lockfile read-modify-write with a sibling `.lock` directory
 
 `mise.toml` pins Lua 5.1, StyLua, Lua Language Server, ShellCheck, shfmt, Lefthook, and typos. `mise run check` runs formatting checks (StyLua, shfmt), ShellCheck, the tests (`scripts/test.sh` and `scripts/test-install.sh`), Lua Language Server diagnostics, and Lua syntax validation with `luac`; `scripts/test.sh` creates a temporary fixture for `tests/test.lua`. Tests stub Rex APIs and Git responses, so they do not prove live Git operations or Rex pane behavior. The README documents setup and task commands.
 
+## Subdirectory plugins
+
+A spec can name a repository subdirectory it loads from. Identity carries the subdirectory (`owner/repo@subdir`) and becomes the lockfile key, the status key, and the per-plugin action target. Managed installs clone the whole repository into `<root>/<owner>/<repo>--<subdir` with slashes sanitized `--` and other symbols `-`; two entries of one repository therefore track different commits. Modules resolve from the subdirectory's own `rex/lua` or `lua/` tree, so each entry is self-contained. `main` is required for subdir specs. Local `path` checkouts combine with `subdir` as a module offset. Duplicate install locations are reported at setup.
+
 Current non-goals include dependency resolution, lazy loading, uninstall, arbitrary remote URLs, and Windows support. These are not implied by the current module contract.

@@ -91,8 +91,14 @@ local function load_plugin(plugin)
     return
   end
 
-  local rex_dir = plugin.dir .. "/rex/lua"
-  local lua_dir = exists(rex_dir) and rex_dir or (plugin.dir .. "/lua")
+  -- A subdir plugin resolves its module tree inside the subdirectory of the
+  -- checkout; plain plugins keep the checkout root.
+  local source_dir = plugin.dir
+  if plugin.subdir and plugin.subdir ~= "" then
+    source_dir = plugin.dir .. "/" .. plugin.subdir
+  end
+  local rex_dir = source_dir .. "/rex/lua"
+  local lua_dir = exists(rex_dir) and rex_dir or (source_dir .. "/lua")
   local relative = plugin.main:gsub("%.", "/")
   if
     not exists(lua_dir .. "/" .. relative .. ".lua")

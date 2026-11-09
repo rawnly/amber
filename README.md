@@ -66,6 +66,7 @@ A plugin is `"owner/repo"` or a table whose first element is that name. Unknown 
 | `version` | default branch | Tag, commit, branch, `^1.2.3`, or `~1.2.3`. Not allowed with `path`. |
 | `path` | none | Absolute path to a local checkout. Never installed, updated, or locked. |
 | `enabled` | `true` | `false` skips loading and rejects actions for it. |
+| `subdir` | none | Repository subdirectory to load the plugin from; requires `main`. Enables monorepo layouts. |
 
 Options for `amber.setup` itself:
 
@@ -75,13 +76,27 @@ Options for `amber.setup` itself:
 | `lockfile` | `amber-lock.json` next to `$REX_CONFIG`, else `$XDG_CONFIG_HOME/rex/amber-lock.json`, else `~/.config/rex/amber-lock.json` | Absolute file path on the server. |
 | `plugins` | `{}` | Ordered list of specs. Plugins load in this order. |
 
-Invalid specs, duplicate plugins, and duplicate enabled `main` names are logged and skipped.
+Invalid specs, duplicate plugins, duplicate enabled `main` names, and duplicate install locations are logged and skipped.
 
 For development, point `path` at a local checkout:
 
 ```lua
 { "rawnly/smart-splits-backend-rex", path = "/absolute/path/to/smart-splits-backend-rex", main = "smart-splits-rex" }
 ```
+
+## Subdirectory plugins
+
+One repository can carry several plugins. Set `subdir` to the path each plugin loads from, relative to the repository root; `main` is required because the repository-name default cannot resolve inside a subdirectory.
+
+```lua
+{ "me/menu-rex-extensions", subdir = "panes/roadmap", main = "agent-roadmap" },
+{ "me/menu-rex-extensions", subdir = "panes/typing", main = "key-strip", version = "^1.2.0" },
+```
+
+- Identity: name, lockfile key, status, and per-plugin action targets are `me/repo@subdir`.
+- Installs: each entry gets its own full clone under `<root>/<owner>/<repo>--<subdir>` (with `/` mapped to `--` and other symbols to `-`). Two subdirs of one repo can sit on different commits or versions.
+- Modules resolve inside the subdirectory's own `rex/lua` (`lua/` fallback), so two subdir plugins are invisible to each other unless they deliberately share a main namespace.
+- `path` combines with `subdir`: local checkout plus module offset.
 
 ## Versions and lockfile
 

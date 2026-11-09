@@ -19,8 +19,10 @@ local function test(name, fn)
   for i, loader in ipairs(original_loaders) do
     package.loaders[i] = loader
   end
-  package.loaded.example, package.loaded.shared, package.loaded.keys = nil, nil, nil
+  package.loaded.example, package.loaded.shared, package.loaded.keys, package.loaded.tools =
+    nil, nil, nil, nil
   _G.plugin_message = nil
+  _G.subdir_message = nil
   rex = {
     json = {
       encode = function(value)
@@ -284,6 +286,123 @@ test("bulk operations skip local and disabled plugins", function(amber, actions,
   })
   local result = actions.amber_install.run({}, {})
   assert(next(result.plugins) == nil and not called(calls, "git", "clone"))
+end)
+
+test("loads a subdir plugin from its own module root", function(amber, actions)
+  amber.setup({
+    root = root,
+    plugins = { { "elly/utility", subdir = "panes/tools", main = "tools" } },
+  })
+  assert(_G.subdir_message == "installed")
+  assert(not pcall(require, "utility"), "the repo-root module must not resolve")
+  local report = actions.amber_status.run({}, {})
+  local row = report["elly/utility@panes/tools"]
+  assert(row and row.subdir == "panes/tools" and row.path == root .. "/elly/utility--panes--tools")
+end)
+
+test("requires main for subdir plugins", function(amber, _, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "elly/utility", subdir = "panes/tools" } },
+  })
+  assert(logs[1][2]:match("main is required for subdir plugins"))
+end)
+
+test("rejects malformed subdir values", function(amber, _, logs)
+  for _, subdir in ipairs({ "/abs", "leaf/", ".", "..", "a/../b", "", 7, true }) do
+    amber.setup({
+      root = root,
+      install = "manual",
+      ---@diagnostic disable-next-line: assign-type-mismatch
+      plugins = { { "elly/utility", subdir = subdir, main = "tools" } },
+    })
+    assert(
+      logs[1][2]:match("invalid plugin specification"),
+      "expected rejection of " .. tostring(subdir)
+    )
+  end
+end)
+
+test(
+  "installs subdir clones into sanitized locations and keys results by identity",
+  function(amber, actions, _, calls, behavior)
+    behavior.clone_success = true
+    behavior.temp = "temporary2"
+    amber.setup({
+      root = root,
+      install = "manual",
+      plugins = { { "elly/other", subdir = "panes/bells", main = "bells" } },
+    })
+    local result = actions.amber_install.run({}, { plugin = "elly/other@panes/bells" })
+    assert(result.status == "installed", tostring(result))
+    local move
+    for _, call in ipairs(calls) do
+      if call.argv[1] == "mv" and call.argv[2] == "-n" then
+        move = call
+      end
+    end
+    assert(move and move.argv[5] == root .. "/elly/other--panes--bells")
+    local head = assert(io.open(root .. "/elly/other--panes--bells/.git/HEAD", "r"))
+    head:close()
+  end
+)
+
+test("reports duplicate sanitized install locations", function(amber, _, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility", subdir = "panes--tools", main = "chimes" },
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+    },
+  })
+  assert(logs[1][2]:match("duplicate install location"))
+end)
+
+test(
+  "moves two subdirs of one repo to different pinned versions",
+  function(amber, actions, _, calls, behavior)
+    behavior.clone_success = true
+    amber.setup({
+      root = root,
+      install = "manual",
+      plugins = {
+        { "elly/utility", subdir = "panes/tools", main = "tools", version = "^1.2.0" },
+        { "elly/utility", subdir = "panes/bells", main = "bells", version = "~2.0.0" },
+      },
+    })
+    local update = actions.amber_update
+    assert(update.run({}, { plugin = "elly/utility@panes/tools" }).status == "updated")
+    assert(update.run({}, { plugin = "elly/utility@panes/bells" }).status == "updated")
+    local checkouts = {}
+    for _, call in ipairs(calls) do
+      if call.argv[1] == "git" and call.argv[2] == "checkout" then
+        checkouts[#checkouts + 1] = call.argv[4]
+      end
+    end
+    assert(#checkouts == 2, "expected two pinned checkouts")
+    local saw_v14, saw_v20 = false, false
+    for _, ref in ipairs(checkouts) do
+      if ref == "v1.4.0" then
+        saw_v14 = true
+      end
+      if ref == "v2.0.0" then
+        saw_v20 = true
+      end
+    end
+    assert(saw_v14 and saw_v20)
+  end
+)
+
+test("resolves path + subdir inside the local checkout", function(amber)
+  amber.setup({
+    root = root,
+    plugins = {
+      { "alice/example", path = root .. "/local-mono", subdir = "panes/tools", main = "tools" },
+    },
+  })
+  assert(_G.subdir_message == "local")
 end)
 
 test("reports clone timeouts and cleans up", function(amber, actions, _, calls, behavior)

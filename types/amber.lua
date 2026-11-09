@@ -2,6 +2,7 @@
 
 ---@class AmberPluginSpec
 ---@field [1] string GitHub owner/repository identity.
+---@field subdir? string Repository subdirectory the plugin loads from; requires main.
 ---@field opts? table Options passed to the plugin's setup function.
 ---@field enabled? boolean Defaults to true.
 ---@field path? string Absolute path to an externally managed checkout.
@@ -18,6 +19,8 @@
 ---@field name string
 ---@field url string
 ---@field dir string
+---@field subdir? string
+---@field module_dir string Directory the plugin's Lua module tree resolves from.
 ---@field parent string
 ---@field opts table
 ---@field main string
