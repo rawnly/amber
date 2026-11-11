@@ -371,6 +371,45 @@ test("reports duplicate dirs: sanitized collision and plain repo", function(ambe
   assert(logs[#logs][2]:match("duplicate plugin"))
 end)
 
+test("rejects duplicate dirs when one spec is disabled", function(amber, actions, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility--panes-tools", main = "chimes", enabled = false },
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+    },
+  })
+  assert(logs[1][2]:match("duplicate install location"))
+  assert(_G.subdir_message == nil, "the colliding plugin must not load")
+  assert(actions.amber_status.run({}, {})["elly/utility@panes/tools"] == nil)
+end)
+
+test("rejects different subdirs that sanitize to one location", function(amber, _, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+      { "elly/utility", subdir = "panes-tools", main = "mirror" },
+    },
+  })
+  assert(#logs == 1 and logs[1][2]:match("duplicate install location"))
+end)
+
+test("an uninstalled subdir plugin warns without erroring", function(amber, actions, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "owner/notyet", subdir = "panes/tools", main = "tools" } },
+  })
+  for _, log in ipairs(logs) do
+    assert(log[1] ~= "error", "unexpected error: " .. tostring(log[2]))
+  end
+  local row = actions.amber_status.run({}, {})["owner/notyet@panes/tools"]
+  assert(row and row.loaded == "missing" and row.error:match("module tools not found"))
+end)
+
 test("suggests subdir for near-miss option names", function(amber, _, logs)
   amber.setup({
     root = root,

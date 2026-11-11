@@ -98,9 +98,9 @@ local function load_plugin(plugin)
     source_dir = plugin.dir .. "/" .. plugin.subdir
   end
   local relative = plugin.main:gsub("%.", "/")
-  if plugin.subdir and plugin.subdir ~= "" and not exists(source_dir) then
-    -- A missing subdirectory deserves its own message: the plugin decides
-    -- to load from a checkout path that is not present at all.
+  if plugin.subdir and plugin.subdir ~= "" and exists(plugin.dir) and not exists(source_dir) then
+    -- A checkout that exists but lacks the subdirectory deserves its own
+    -- message. A missing checkout falls through to the missing-module warning.
     plugin.load_status, plugin.load_error =
       "missing", "subdir " .. plugin.subdir .. " not found in " .. plugin.dir
     rex.log("error", "amber: " .. plugin.name .. ": " .. plugin.load_error)

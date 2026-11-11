@@ -52,13 +52,13 @@ function M.setup(config)
         "error",
         "amber: duplicate plugin or main module: " .. plugin.name .. " (" .. plugin.main .. ")"
       )
-    elseif plugin.enabled and not plugin.local_path and by_dir[plugin.dir] then
+    elseif not plugin.local_path and by_dir[plugin.dir] then
       rex.log("error", "amber: duplicate install location: " .. plugin.dir)
     else
       if plugin.enabled then
         modules[plugin.main] = true
       end
-      if plugin.enabled and not plugin.local_path then
+      if not plugin.local_path then
         by_dir[plugin.dir] = true
       end
       by_name[plugin.name] = plugin
