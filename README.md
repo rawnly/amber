@@ -76,7 +76,7 @@ Options for `amber.setup` itself:
 | `lockfile` | `amber-lock.json` next to `$REX_CONFIG`, else `$XDG_CONFIG_HOME/rex/amber-lock.json`, else `~/.config/rex/amber-lock.json` | Absolute file path on the server. |
 | `plugins` | `{}` | Ordered list of specs. Plugins load in this order. |
 
-Invalid specs, duplicate plugins, duplicate enabled `main` names, and duplicate install locations are logged and skipped.
+Invalid specs, duplicate plugins, duplicate enabled `main` names, and duplicate install locations are logged and skipped. A duplicate install location is rejected for every non-local spec, even when one of the entries is disabled.
 
 For development, point `path` at a local checkout:
 
@@ -103,8 +103,8 @@ amber.setup({
 ```
 
 - Identity: name, lockfile key, status, and per-plugin action targets are `me/repo@subdir`.
-- Installs: each entry gets its own full clone under `<root>/<owner>/<repo>--<subdir>` (with `/` mapped to `-` and other symbols to `-`). Two subdirs of one repo can sit on different commits or versions. If two entries (or one entry and a plain repository) resolve to the same directory, setup reports a duplicate location.
-- Modules resolve inside the subdirectory's own `rex/lua` (`lua/` fallback), so two subdir plugins are only isolated by the searcher's main-namespace scope, not by anything stronger; a missing subdirectory after install reports a `missing` load status naming the subdir.
+- Installs: each entry gets its own full clone under `<root>/<owner>/<repo>--<subdir>` (with `/` mapped to `-` and other symbols to `-`). Two subdirs of one repo can sit on different commits or versions. If two entries (or one entry and a plain repository) resolve to the same directory, setup reports a duplicate location; that applies whether the entries are enabled or disabled, so a disabled checkout never stands in for an enabled plugin.
+- Modules resolve inside the subdirectory's own `rex/lua` (`lua/` fallback), so two subdir plugins are only isolated by the searcher's main-namespace scope, not by anything stronger; a missing subdirectory in an existing checkout reports a `missing` load status naming the subdir, while a checkout that was never installed keeps the plain missing-module warning.
 - `path` combines with `subdir`: local checkout plus module offset.
 - Bulk operations share the action budget: several large subdirs of one monorepo can hit "action time budget exhausted" during `amber_install`; use per-plugin install (`plugin=me/repo@subdir`) for those.
 

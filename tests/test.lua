@@ -348,7 +348,7 @@ test(
   end
 )
 
-test("reports duplicate dirs: sanitized collision and plain repo", function(amber, _, logs)
+test("reports duplicate dirs: sanitized collision and plain repo", function(amber, actions, logs)
   -- A plain repository whose name already carries the sanitized suffix
   -- collides with the sibling that owns `subdir`.
   amber.setup({
@@ -360,6 +360,30 @@ test("reports duplicate dirs: sanitized collision and plain repo", function(ambe
     },
   })
   assert(logs[1][2]:match("duplicate install location"))
+  -- The same clash when the plain repository is disabled: the enabled subdir
+  -- plugin must not adopt that checkout, so it is skipped as well.
+  local first = #logs
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility--panes-tools", main = "chimes", enabled = false },
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+    },
+  })
+  assert(logs[first + 1][2]:match("duplicate install location"))
+  assert(_G.subdir_message == nil, "a disabled checkout must not satisfy a subdir plugin")
+  assert(actions.amber_status.run({}, {})["elly/utility@panes/tools"] == nil)
+  -- Different subdirs can sanitize to the same install directory.
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+      { "elly/utility", subdir = "panes-tools", main = "mirror" },
+    },
+  })
+  assert(logs[#logs][2]:match("duplicate install location"))
   amber.setup({
     root = root,
     install = "manual",
@@ -412,6 +436,40 @@ test("marks a missing subdirectory and names it", function(amber, actions)
     plugins = { { "alice/example", path = root .. "/bob", subdir = "gone", main = "tools" } },
   })
   local row = actions.amber_status.run({}, {})["alice/example@gone"]
+  assert(row and row.loaded == "missing" and row.error:match("subdir gone not found"))
+end)
+
+test("warns instead of erroring for an uninstalled subdir checkout", function(amber, actions, logs)
+  -- The clone does not exist yet, so setup must not claim the subdirectory is
+  -- missing; it reports the module like a plain uninstalled plugin does.
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "elly/notyet", subdir = "panes/tools", main = "tools" } },
+  })
+  for _, entry in ipairs(logs) do
+    assert(entry[1] ~= "error", "unexpected error log: " .. entry[2])
+  end
+  local row = actions.amber_status.run({}, {})["elly/notyet@panes/tools"]
+  assert(row and row.loaded == "missing")
+  assert(row.error:match("module tools not found in"))
+  assert(not row.error:match("subdir"))
+end)
+
+test("names a missing subdirectory in an existing checkout", function(amber, actions, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "elly/claimed", subdir = "gone", main = "tools" } },
+  })
+  local errors = {}
+  for _, entry in ipairs(logs) do
+    if entry[1] == "error" then
+      errors[#errors + 1] = entry[2]
+    end
+  end
+  assert(#errors == 1 and errors[1]:match("subdir gone not found in"), table.concat(errors, "; "))
+  local row = actions.amber_status.run({}, {})["elly/claimed@gone"]
   assert(row and row.loaded == "missing" and row.error:match("subdir gone not found"))
 end)
 

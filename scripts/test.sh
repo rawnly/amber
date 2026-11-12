@@ -10,7 +10,7 @@ mkdir -p "$fixture/alice/example/.git" "$fixture/alice/example/lua/example" "$fi
   "$fixture/elly/utility--panes-bells/.git" "$fixture/elly/utility--panes-bells/panes/bells/lua/bells" \
   "$fixture/local-mono/panes/tools/lua/tools" \
   "$fixture/temporary2/.git" "$fixture/temporary2/panes/bells/lua/bells" \
-  "$fixture/temporary3/.git" "$fixture/temporary4/.git"
+  "$fixture/temporary3/.git" "$fixture/temporary4/.git" "$fixture/elly/claimed--gone/.git"
 printf 'ref: refs/heads/main\n' >"$fixture/alice/example/.git/HEAD"
 printf 'ref: refs/heads/main\n' >"$fixture/carol/shared/.git/HEAD"
 printf 'ref: refs/heads/main\n' >"$fixture/temporary/.git/HEAD"
@@ -20,6 +20,7 @@ printf 'ref: refs/heads/main\n' >"$fixture/temporary2/.git/HEAD"
 printf 'ref: refs/heads/main\n' >"$fixture/temporary3/.git/HEAD"
 printf 'ref: refs/heads/main\n' >"$fixture/temporary4/.git/HEAD"
 printf 'ref: refs/heads/main\n' >"$fixture/locked/.git/HEAD"
+printf 'ref: refs/heads/main\n' >"$fixture/elly/claimed--gone/.git/HEAD"
 printf '%s\n' 'return { setup = function() end }' >"$fixture/locked/lua/pinned/init.lua"
 printf '%s\n' 'return { setup = function() end }' >"$fixture/temporary/lua/new/init.lua"
 printf '%s\n' 'return { setup = function(opts) _G.plugin_message = opts.message end }' >"$fixture/alice/example/lua/example/init.lua"

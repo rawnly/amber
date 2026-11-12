@@ -52,13 +52,17 @@ function M.setup(config)
         "error",
         "amber: duplicate plugin or main module: " .. plugin.name .. " (" .. plugin.main .. ")"
       )
-    elseif plugin.enabled and not plugin.local_path and by_dir[plugin.dir] then
+    elseif not plugin.local_path and by_dir[plugin.dir] then
+      -- Managed specs share one directory per install, so a location clash is
+      -- rejected for every non-local spec, including disabled ones: otherwise
+      -- a disabled plain repo can stand in for an enabled subdir plugin and
+      -- install treats that checkout as already installed.
       rex.log("error", "amber: duplicate install location: " .. plugin.dir)
     else
       if plugin.enabled then
         modules[plugin.main] = true
       end
-      if plugin.enabled and not plugin.local_path then
+      if not plugin.local_path then
         by_dir[plugin.dir] = true
       end
       by_name[plugin.name] = plugin
