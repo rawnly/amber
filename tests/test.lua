@@ -310,7 +310,19 @@ test("requires main for subdir plugins", function(amber, _, logs)
 end)
 
 test("rejects malformed subdir values", function(amber, _, logs)
-  for _, subdir in ipairs({ "/abs", "leaf/", ".", "..", "a/../b", "", 7, true }) do
+  for _, subdir in ipairs({
+    "/abs",
+    "leaf/",
+    ".",
+    "..",
+    "a/../b",
+    "a//b",
+    "panes/to ols",
+    "a!b/c",
+    "",
+    7,
+    true,
+  }) do
     amber.setup({
       root = root,
       install = "manual",
