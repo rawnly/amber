@@ -16,7 +16,7 @@ Requires Git, a POSIX shell, and macOS or Linux. Run on the Rex server machine.
 curl -fsSL https://raw.githubusercontent.com/rawnly/amber/main/install.sh | sh
 ```
 
-This clones Amber to `~/.local/share/rex/amber`. It does not touch your Rex config and refuses to overwrite an existing directory. To inspect it first, download `install.sh` and run `sh install.sh`. To use another absolute path, run `AMBER_INSTALL_DIR=/absolute/path sh install.sh`.
+This clones Amber to `~/.local/share/rex/amber`. When run from a terminal, it asks you to confirm the directory. Answer `n` (or start with a directory that already exists) to type another absolute path; `~/` is expanded. It does not touch your Rex config and refuses to overwrite an existing directory. To inspect it first, download `install.sh` and run `sh install.sh`. To change the default, set `AMBER_INSTALL_DIR=/absolute/path`. Without a terminal (output redirected or no `/dev/tty`), it installs to the default without asking.
 
 Add to your Rex config (`~/.config/rex/init.lua` by default):
 
