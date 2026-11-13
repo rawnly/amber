@@ -66,6 +66,7 @@ A plugin is `"owner/repo"` or a table whose first element is that name. Unknown 
 | `version` | default branch | Tag, commit, branch, `^1.2.3`, or `~1.2.3`. Not allowed with `path`. |
 | `path` | none | Absolute path to a local checkout. Never installed, updated, or locked. |
 | `enabled` | `true` | `false` skips loading and rejects actions for it. |
+| `subdir` | none | Repository subdirectory to load the plugin from; requires `main`. Enables monorepo layouts. |
 
 Options for `amber.setup` itself:
 
@@ -75,13 +76,37 @@ Options for `amber.setup` itself:
 | `lockfile` | `amber-lock.json` next to `$REX_CONFIG`, else `$XDG_CONFIG_HOME/rex/amber-lock.json`, else `~/.config/rex/amber-lock.json` | Absolute file path on the server. |
 | `plugins` | `{}` | Ordered list of specs. Plugins load in this order. |
 
-Invalid specs, duplicate plugins, and duplicate enabled `main` names are logged and skipped.
+Invalid specs, duplicate plugins, duplicate enabled `main` names, and duplicate install locations are logged and skipped. A duplicate install location is rejected for every non-local spec, even when one of the entries is disabled.
 
 For development, point `path` at a local checkout:
 
 ```lua
 { "rawnly/smart-splits-backend-rex", path = "/absolute/path/to/smart-splits-backend-rex", main = "smart-splits-rex" }
 ```
+
+## Subdirectory plugins
+
+One repository can carry several plugins. Set `subdir` to the path each plugin loads from, relative to the repository root; `main` is required because the repository-name default cannot resolve inside a subdirectory.
+
+```lua
+--- The monorepo plugins for this host, each loading from its own directory.
+---@type AmberPluginSpec[]
+local subdir_plugins = {
+  { "me/menu-rex-extensions", subdir = "panes/roadmap", main = "agent-roadmap" },
+  { "me/menu-rex-extensions", subdir = "panes/typing", main = "key-strip", version = "^1.2.0" },
+}
+
+amber.setup({
+  root = "/absolute/path/to/plugins",
+  plugins = subdir_plugins,
+})
+```
+
+- Identity: name, lockfile key, status, and per-plugin action targets are `me/repo@subdir`.
+- Installs: each entry gets its own full clone under `<root>/<owner>/<repo>--<subdir>` (with `/` mapped to `-` and other symbols to `-`). Two subdirs of one repo can sit on different commits or versions. If two entries (or one entry and a plain repository) resolve to the same directory, setup reports a duplicate location; that applies whether the entries are enabled or disabled, so a disabled checkout never stands in for an enabled plugin.
+- Modules resolve inside the subdirectory's own `rex/lua` (`lua/` fallback), so two subdir plugins are only isolated by the searcher's main-namespace scope, not by anything stronger; a missing subdirectory in an existing checkout reports a `missing` load status naming the subdir, while a checkout that was never installed keeps the plain missing-module warning.
+- `path` combines with `subdir`: local checkout plus module offset.
+- Bulk operations share the action budget: several large subdirs of one monorepo can hit "action time budget exhausted" during `amber_install`; use per-plugin install (`plugin=me/repo@subdir`) for those.
 
 ## Versions and lockfile
 

@@ -19,8 +19,10 @@ local function test(name, fn)
   for i, loader in ipairs(original_loaders) do
     package.loaders[i] = loader
   end
-  package.loaded.example, package.loaded.shared, package.loaded.keys = nil, nil, nil
+  package.loaded.example, package.loaded.shared, package.loaded.keys, package.loaded.tools =
+    nil, nil, nil, nil
   _G.plugin_message = nil
+  _G.subdir_message = nil
   rex = {
     json = {
       encode = function(value)
@@ -284,6 +286,253 @@ test("bulk operations skip local and disabled plugins", function(amber, actions,
   })
   local result = actions.amber_install.run({}, {})
   assert(next(result.plugins) == nil and not called(calls, "git", "clone"))
+end)
+
+test("loads a subdir plugin from its own module root", function(amber, actions)
+  amber.setup({
+    root = root,
+    plugins = { { "elly/utility", subdir = "panes/tools", main = "tools" } },
+  })
+  assert(_G.subdir_message == "installed")
+  assert(not pcall(require, "utility"), "the repo-root module must not resolve")
+  local report = actions.amber_status.run({}, {})
+  local row = report["elly/utility@panes/tools"]
+  assert(row and row.subdir == "panes/tools" and row.path == root .. "/elly/utility--panes-tools")
+end)
+
+test("requires main for subdir plugins", function(amber, _, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "elly/utility", subdir = "panes/tools" } },
+  })
+  assert(logs[1][2]:match("main is required for subdir plugins"))
+end)
+
+test("rejects malformed subdir values", function(amber, _, logs)
+  for _, subdir in ipairs({
+    "/abs",
+    "leaf/",
+    ".",
+    "..",
+    "a/../b",
+    "a//b",
+    "panes/to ols",
+    "a!b/c",
+    "",
+    7,
+    true,
+  }) do
+    amber.setup({
+      root = root,
+      install = "manual",
+      ---@diagnostic disable-next-line: assign-type-mismatch
+      plugins = { { "elly/utility", subdir = subdir, main = "tools" } },
+    })
+    assert(
+      logs[1][2]:match("invalid plugin specification"),
+      "expected rejection of " .. tostring(subdir)
+    )
+  end
+end)
+
+test(
+  "installs subdir clones into sanitized locations and keys results by identity",
+  function(amber, actions, _, calls, behavior)
+    behavior.clone_success = true
+    behavior.temp = "temporary2"
+    amber.setup({
+      root = root,
+      install = "manual",
+      plugins = { { "elly/other", subdir = "panes/bells", main = "bells" } },
+    })
+    local result = actions.amber_install.run({}, { plugin = "elly/other@panes/bells" })
+    assert(result.status == "installed", tostring(result))
+    local move
+    for _, call in ipairs(calls) do
+      if call.argv[1] == "mv" and call.argv[2] == "-n" then
+        move = call
+      end
+    end
+    assert(move and move.argv[5] == root .. "/elly/other--panes-bells")
+    local head = assert(io.open(root .. "/elly/other--panes-bells/.git/HEAD", "r"))
+    head:close()
+  end
+)
+
+test("reports duplicate dirs: sanitized collision and plain repo", function(amber, actions, logs)
+  -- A plain repository whose name already carries the sanitized suffix
+  -- collides with the sibling that owns `subdir`.
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility--panes-tools", main = "chimes" },
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+    },
+  })
+  assert(logs[1][2]:match("duplicate install location"))
+  -- The same clash when the plain repository is disabled: the enabled subdir
+  -- plugin must not adopt that checkout, so it is skipped as well.
+  local first = #logs
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility--panes-tools", main = "chimes", enabled = false },
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+    },
+  })
+  assert(logs[first + 1][2]:match("duplicate install location"))
+  assert(_G.subdir_message == nil, "a disabled checkout must not satisfy a subdir plugin")
+  assert(actions.amber_status.run({}, {})["elly/utility@panes/tools"] == nil)
+  -- Different subdirs can sanitize to the same install directory.
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+      { "elly/utility", subdir = "panes-tools", main = "mirror" },
+    },
+  })
+  assert(logs[#logs][2]:match("duplicate install location"))
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = {
+      { "elly/utility", subdir = "panes/tools", main = "tools" },
+      { "elly/utility", subdir = "panes/tools", main = "mirror" },
+    },
+  })
+  assert(logs[#logs][2]:match("duplicate plugin"))
+end)
+
+test("suggests subdir for near-miss option names", function(amber, _, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "elly/utility", subdirt = "panes/tools", main = "tools" } },
+  })
+  assert(logs[1][2]:match("did you mean subdir"))
+end)
+
+test(
+  "a plain repo and a subdir plugin of one repo coexist with separate locks",
+  function(amber, actions, _, calls, behavior)
+    behavior.clone_success = true
+    behavior.temp = "temporary3"
+    amber.setup({
+      root = root,
+      install = "manual",
+      plugins = {
+        { "elly/utility" },
+        { "elly/monorepo", subdir = "panes/tools", main = "tools" },
+      },
+    })
+    assert(actions.amber_install.run({}, { plugin = "elly/utility" }).status == "installed")
+    behavior.temp = "temporary4"
+    assert(
+      actions.amber_install.run({}, { plugin = "elly/monorepo@panes/tools" }).status == "installed"
+    )
+    local report = actions.amber_status.run({}, {})
+    assert(report["elly/utility"] and report["elly/monorepo@panes/tools"])
+    assert(
+      #report["elly/utility"].commit == 40 and #report["elly/monorepo@panes/tools"].commit == 40
+    )
+  end
+)
+
+test("marks a missing subdirectory and names it", function(amber, actions)
+  amber.setup({
+    root = root,
+    plugins = { { "alice/example", path = root .. "/bob", subdir = "gone", main = "tools" } },
+  })
+  local row = actions.amber_status.run({}, {})["alice/example@gone"]
+  assert(row and row.loaded == "missing" and row.error:match("subdir gone not found"))
+end)
+
+test("warns instead of erroring for an uninstalled subdir checkout", function(amber, actions, logs)
+  -- The clone does not exist yet, so setup must not claim the subdirectory is
+  -- missing; it reports the module like a plain uninstalled plugin does.
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "elly/notyet", subdir = "panes/tools", main = "tools" } },
+  })
+  for _, entry in ipairs(logs) do
+    assert(entry[1] ~= "error", "unexpected error log: " .. entry[2])
+  end
+  local row = actions.amber_status.run({}, {})["elly/notyet@panes/tools"]
+  assert(row and row.loaded == "missing")
+  assert(row.error:match("module tools not found in"))
+  assert(not row.error:match("subdir"))
+end)
+
+test("names a missing subdirectory in an existing checkout", function(amber, actions, logs)
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "elly/claimed", subdir = "gone", main = "tools" } },
+  })
+  local errors = {}
+  for _, entry in ipairs(logs) do
+    if entry[1] == "error" then
+      errors[#errors + 1] = entry[2]
+    end
+  end
+  assert(#errors == 1 and errors[1]:match("subdir gone not found in"), table.concat(errors, "; "))
+  local row = actions.amber_status.run({}, {})["elly/claimed@gone"]
+  assert(row and row.loaded == "missing" and row.error:match("subdir gone not found"))
+end)
+
+test("rejects unknown plugin names for targeted actions", function(amber, actions)
+  amber.setup({ root = root, install = "manual", plugins = { "elly/utility" } })
+  assert(not pcall(actions.amber_install.run, {}, { plugin = "bob/none" }))
+end)
+
+test(
+  "moves two subdirs of one repo to different pinned versions",
+  function(amber, actions, _, calls, behavior)
+    behavior.clone_success = true
+    amber.setup({
+      root = root,
+      install = "manual",
+      plugins = {
+        { "elly/utility", subdir = "panes/tools", main = "tools", version = "^1.2.0" },
+        { "elly/utility", subdir = "panes/bells", main = "bells", version = "~2.0.0" },
+      },
+    })
+    local update = actions.amber_update
+    assert(update.run({}, { plugin = "elly/utility@panes/tools" }).status == "updated")
+    assert(update.run({}, { plugin = "elly/utility@panes/bells" }).status == "updated")
+    local checkouts = {}
+    for _, call in ipairs(calls) do
+      if call.argv[1] == "git" and call.argv[2] == "checkout" then
+        checkouts[#checkouts + 1] = call.argv[4]
+      end
+    end
+    assert(#checkouts == 2, "expected two pinned checkouts")
+    local saw_v14, saw_v20 = false, false
+    for _, ref in ipairs(checkouts) do
+      if ref == "v1.4.0" then
+        saw_v14 = true
+      end
+      if ref == "v2.0.0" then
+        saw_v20 = true
+      end
+    end
+    assert(saw_v14 and saw_v20)
+  end
+)
+
+test("resolves path + subdir inside the local checkout", function(amber)
+  amber.setup({
+    root = root,
+    plugins = {
+      { "alice/example", path = root .. "/local-mono", subdir = "panes/tools", main = "tools" },
+    },
+  })
+  assert(_G.subdir_message == "local")
 end)
 
 test("reports clone timeouts and cleans up", function(amber, actions, _, calls, behavior)

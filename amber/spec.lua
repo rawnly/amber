@@ -23,6 +23,14 @@ local function closest_option(key, options)
   return distance <= 2 and best or nil
 end
 
+-- Map a subdirectory to its install-directory suffix: a single path
+-- segment where slashes become - and other symbols become - too.
+-- Collisions between different subdirs resolve to the same directory
+-- and are rejected by the duplicate-location check at setup.
+local function sanitize_subdir(subdir)
+  return (subdir:gsub("/", "-"):gsub("[^%w%.%-]", "-"))
+end
+
 ---@param spec string|AmberPluginSpec
 ---@param root string
 ---@return AmberPlugin
@@ -34,9 +42,16 @@ local function parse(spec, root)
     type(spec) == "table" and type(spec[1]) == "string",
     "plugin must be an owner/repository string or table"
   )
-  local options = { "opts", "enabled", "path", "main", "version" }
-  local allowed =
-    { [1] = true, opts = true, enabled = true, path = true, main = true, version = true }
+  local options = { "opts", "enabled", "path", "main", "version", "subdir" }
+  local allowed = {
+    [1] = true,
+    opts = true,
+    enabled = true,
+    path = true,
+    main = true,
+    version = true,
+    subdir = true,
+  }
   for key in pairs(spec) do
     if not allowed[key] then
       local suggestion = closest_option(key, options)
@@ -58,6 +73,20 @@ local function parse(spec, root)
     owner and owner ~= "." and owner ~= ".." and repo ~= "." and repo ~= "..",
     "invalid plugin name: " .. spec[1]
   )
+  local subdir = spec.subdir
+  if subdir ~= nil then
+    assert(type(subdir) == "string" and #subdir > 0, "invalid subdir: " .. tostring(subdir))
+    assert(
+      subdir:sub(1, 1) ~= "/" and subdir:sub(-1) ~= "/" and not subdir:find("//", 1, true),
+      "subdir must be relative to the repository root: " .. tostring(subdir)
+    )
+    for segment in subdir:gmatch("[^/]+") do
+      assert(
+        segment ~= "." and segment ~= ".." and segment:match("^[%w_%.%-]+$"),
+        "invalid subdir: " .. tostring(subdir)
+      )
+    end
+  end
   assert(spec.opts == nil or type(spec.opts) == "table", "plugin opts must be a table: " .. spec[1])
   assert(
     spec.enabled == nil or type(spec.enabled) == "boolean",
@@ -84,6 +113,12 @@ local function parse(spec, root)
     spec.path == nil or (type(spec.path) == "string" and spec.path:sub(1, 1) == "/"),
     "plugin path must be absolute: " .. spec[1]
   )
+  assert(
+    not subdir or type(spec.main) == "string",
+    "main is required for subdir plugins: "
+      .. spec[1]
+      .. " (the repository-name default cannot resolve inside a subdirectory)"
+  )
   local main = spec.main or repo:gsub("%.rex$", "")
   assert(
     type(main) == "string"
@@ -92,10 +127,20 @@ local function parse(spec, root)
       and main:sub(-1) ~= ".",
     "invalid main module: " .. spec[1]
   )
+  -- A subdir plugin owns the repository's identity: its name carries the
+  -- subdirectory so lockfile, status, and per-plugin action targets stay
+  -- unique while module resolution looks inside that subdirectory.
+  local name = subdir and (spec[1] .. "@" .. subdir) or spec[1]
+  local dir = spec.path
+    or (root .. "/" .. owner .. "/" .. repo .. (subdir and "--" .. sanitize_subdir(subdir) or ""))
   return {
-    name = spec[1],
+    name = name,
+    subdir = subdir,
     url = "https://github.com/" .. spec[1] .. ".git",
-    dir = spec.path or (root .. "/" .. owner .. "/" .. repo),
+    dir = dir,
+    -- Modules resolve inside the subdirectory of the checkout (the install
+    -- directory for managed plugins, the local checkout for path plugins).
+    module_dir = dir .. (subdir and "/" .. subdir or ""),
     parent = root .. "/" .. owner,
     opts = spec.opts or {},
     main = main,

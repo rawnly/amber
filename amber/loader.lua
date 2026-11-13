@@ -91,9 +91,24 @@ local function load_plugin(plugin)
     return
   end
 
-  local rex_dir = plugin.dir .. "/rex/lua"
-  local lua_dir = exists(rex_dir) and rex_dir or (plugin.dir .. "/lua")
+  -- A subdir plugin resolves its module tree inside the subdirectory of the
+  -- checkout; plain plugins keep the checkout root.
+  local source_dir = plugin.dir
+  if plugin.subdir and plugin.subdir ~= "" then
+    source_dir = plugin.dir .. "/" .. plugin.subdir
+  end
   local relative = plugin.main:gsub("%.", "/")
+  if plugin.subdir and plugin.subdir ~= "" and exists(plugin.dir) and not exists(source_dir) then
+    -- A missing subdirectory deserves its own message only when the checkout
+    -- itself exists. Before install the checkout is absent, so the generic
+    -- missing-module warning below applies like it does for plain plugins.
+    plugin.load_status, plugin.load_error =
+      "missing", "subdir " .. plugin.subdir .. " not found in " .. plugin.dir
+    rex.log("error", "amber: " .. plugin.name .. ": " .. plugin.load_error)
+    return
+  end
+  local rex_dir = source_dir .. "/rex/lua"
+  local lua_dir = exists(rex_dir) and rex_dir or (source_dir .. "/lua")
   if
     not exists(lua_dir .. "/" .. relative .. ".lua")
     and not exists(lua_dir .. "/" .. relative .. "/init.lua")
