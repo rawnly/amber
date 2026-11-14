@@ -31,6 +31,34 @@ local function sanitize_subdir(subdir)
   return (subdir:gsub("/", "-"):gsub("[^%w%.%-]", "-"))
 end
 
+-- Normalize the build option to a list of steps. A step is a shell command
+-- string or a function; false disables the build, like lazy.nvim.
+---@param build any
+---@param name string
+---@return (string|fun(ctx: AmberBuildContext): any)[]?
+local function parse_build(build, name)
+  if build == nil or build == false then
+    return nil
+  end
+  local steps = type(build) == "table" and build or { build }
+  assert(#steps > 0, "plugin build must not be an empty list: " .. name)
+  for key in pairs(steps) do
+    assert(
+      type(key) == "number" and key >= 1 and key <= #steps and key % 1 == 0,
+      "plugin build must be a command, a function, or a list of them: " .. name
+    )
+  end
+  local normalized = {}
+  for i, step in ipairs(steps) do
+    assert(
+      type(step) == "function" or (type(step) == "string" and step:match("%S")),
+      "plugin build step " .. i .. " must be a command string or a function: " .. name
+    )
+    normalized[i] = step
+  end
+  return normalized
+end
+
 ---@param spec string|AmberPluginSpec
 ---@param root string
 ---@return AmberPlugin
@@ -42,7 +70,7 @@ local function parse(spec, root)
     type(spec) == "table" and type(spec[1]) == "string",
     "plugin must be an owner/repository string or table"
   )
-  local options = { "opts", "enabled", "path", "main", "version", "subdir" }
+  local options = { "opts", "enabled", "path", "main", "version", "subdir", "build" }
   local allowed = {
     [1] = true,
     opts = true,
@@ -51,6 +79,7 @@ local function parse(spec, root)
     main = true,
     version = true,
     subdir = true,
+    build = true,
   }
   for key in pairs(spec) do
     if not allowed[key] then
@@ -114,6 +143,11 @@ local function parse(spec, root)
     "plugin path must be absolute: " .. spec[1]
   )
   assert(
+    not spec.path or not spec.build,
+    "build is not supported for local plugins: " .. spec[1] .. " (Amber never runs them)"
+  )
+  local build = parse_build(spec.build, spec[1])
+  assert(
     not subdir or type(spec.main) == "string",
     "main is required for subdir plugins: "
       .. spec[1]
@@ -131,10 +165,11 @@ local function parse(spec, root)
   -- subdirectory so lockfile, status, and per-plugin action targets stay
   -- unique while module resolution looks inside that subdirectory.
   local name = subdir and (spec[1] .. "@" .. subdir) or spec[1]
-  local dir = spec.path
-    or (root .. "/" .. owner .. "/" .. repo .. (subdir and "--" .. sanitize_subdir(subdir) or ""))
+  local slug = owner .. "/" .. repo .. (subdir and "--" .. sanitize_subdir(subdir) or "")
+  local dir = spec.path or (root .. "/" .. slug)
   return {
     name = name,
+    slug = slug,
     subdir = subdir,
     url = "https://github.com/" .. spec[1] .. ".git",
     dir = dir,
@@ -147,6 +182,7 @@ local function parse(spec, root)
     local_path = spec.path ~= nil,
     enabled = spec.enabled ~= false,
     version = spec.version,
+    build = build,
   }
 end
 

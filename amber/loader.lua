@@ -85,7 +85,8 @@ local function register_action(name, title, operation, plugins, ordered, all)
 end
 
 ---@param plugin AmberPlugin
-local function load_plugin(plugin)
+---@param context? AmberPluginContext
+local function load_plugin(plugin, context)
   if not plugin.enabled then
     plugin.load_status = "disabled"
     return
@@ -127,9 +128,9 @@ local function load_plugin(plugin)
     local module = require(plugin.main)
     assert(
       type(module) == "table" and type(module.setup) == "function",
-      plugin.main .. " must return a table with setup(opts)"
+      plugin.main .. " must return a table with setup(opts, ctx)"
     )
-    module.setup(plugin.opts)
+    module.setup(plugin.opts, context)
   end)
   if not ok then
     plugin.load_status, plugin.load_error = "error", tostring(load_err)
