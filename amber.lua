@@ -11,6 +11,7 @@ local parse = assert(loadfile(directory .. "amber/spec.lua"))()
 local git = assert(loadfile(directory .. "amber/git.lua"))(util)
 local loader = assert(loadfile(directory .. "amber/loader.lua"))(util)
 local lock = assert(loadfile(directory .. "amber/lock.lua"))(util)
+local build = assert(loadfile(directory .. "amber/build.lua"))(util)
 local register_action, load_plugin = loader.register_action, loader.load_plugin
 
 ---@param config? AmberConfig
@@ -42,6 +43,10 @@ function M.setup(config)
     return
   end
 
+  -- Per-plugin state directories are only named here; plugins create them.
+  local state_home = os.getenv("XDG_STATE_HOME") or (home and home .. "/.local/state")
+  local state_root = state_home and state_home .. "/rex/amber"
+
   local plugins, by_name, modules, by_dir = {}, {}, {}, {}
   for _, spec in ipairs(config.plugins or {}) do
     local ok, plugin = pcall(parse, spec, root)
@@ -71,13 +76,22 @@ function M.setup(config)
   end
 
   local function manage(plugin, deadline, operation)
-    return lock.transaction(lockfile, function(data)
+    local build_err
+    local result, err = lock.transaction(lockfile, function(data)
       local entry = data.plugins[plugin.name]
       if operation == "restore" and not entry then
         return nil, "no lockfile entry for " .. plugin.name
       end
       local status, err
-      if operation == "install" then
+      if operation == "build" then
+        if plugin.local_path then
+          return nil, "local plugins are managed outside amber"
+        end
+        if not util.exists(plugin.dir .. "/.git/HEAD") then
+          return nil, "not installed"
+        end
+        status = plugin.build and "built" or "no build step"
+      elseif operation == "install" then
         status, err = git.install(plugin, deadline, entry and entry.commit)
       elseif operation == "restore" then
         status, err = git.restore(plugin, deadline, entry.commit)
@@ -87,16 +101,41 @@ function M.setup(config)
       if not status then
         return nil, err
       end
-      if operation == "restore" or (operation == "install" and entry) then
-        return status
+      local changed = false
+      local hash, hash_err
+      if operation == "update" or (operation == "install" and not entry) then
+        hash, hash_err = git.commit(plugin, deadline)
+        if not hash then
+          return nil, "checkout succeeded but lockfile was not updated: " .. tostring(hash_err)
+        end
+        -- A new commit invalidates the recorded build; an unchanged one keeps it.
+        local kept = entry and entry.commit == hash and entry.built or nil
+        entry = { commit = hash, version = plugin.version, built = kept }
+        data.plugins[plugin.name] = entry
+        changed = true
       end
-      local hash, hash_err = git.commit(plugin, deadline)
-      if not hash then
-        return nil, "checkout succeeded but lockfile was not updated: " .. tostring(hash_err)
+      if plugin.build and entry then
+        hash, hash_err = hash or git.commit(plugin, deadline)
+        if not hash then
+          build_err = "cannot read checkout commit for build: " .. tostring(hash_err)
+        elseif operation == "build" or entry.built ~= hash then
+          local built, built_err = build.run(plugin, hash, deadline)
+          if built then
+            entry.built = hash
+            changed = true
+          else
+            build_err = built_err
+          end
+        end
       end
-      data.plugins[plugin.name] = { commit = hash, version = plugin.version }
-      return status, nil, true
+      return status, nil, changed
     end)
+    -- The checkout and lock entry are recorded even when the build fails, so
+    -- the failure is reported after the transaction and amber_build can retry.
+    if result and build_err then
+      return nil, build_err
+    end
+    return result, err
   end
   register_action("amber_install", "Install Rex Plugins", function(plugin, deadline)
     return manage(plugin, deadline, "install")
@@ -106,6 +145,9 @@ function M.setup(config)
   end, by_name, plugins, true)
   register_action("amber_restore", "Restore Rex Plugins", function(plugin, deadline)
     return manage(plugin, deadline, "restore")
+  end, by_name, plugins, true)
+  register_action("amber_build", "Build Rex Plugins", function(plugin, deadline)
+    return manage(plugin, deadline, "build")
   end, by_name, plugins, true)
   rex.action({
     name = "amber_status",
@@ -137,6 +179,10 @@ function M.setup(config)
         if locked and head then
           lock_matches = locked.commit == head
         end
+        local built
+        if plugin.build and locked then
+          built = locked.built == locked.commit
+        end
         result[plugin.name] = {
           enabled = plugin.enabled,
           path = plugin.dir,
@@ -152,6 +198,7 @@ function M.setup(config)
           commit = head,
           locked_commit = locked and locked.commit or nil,
           lock_matches = lock_matches,
+          built = built,
           lock_error = lock_error,
         }
       end
@@ -205,7 +252,28 @@ function M.setup(config)
         rex.log("warn", "amber: " .. plugin.name .. ": cannot check version: " .. err)
       end
     end
-    load_plugin(plugin)
+    local context = {
+      name = plugin.name,
+      dir = plugin.dir,
+      module_dir = plugin.module_dir,
+      commit = locked and locked.commit or nil,
+      data_dir = state_root and state_root .. "/" .. plugin.slug or nil,
+    }
+    -- A plugin that needs a build is not set up until the build has run for
+    -- its locked commit, since setup typically depends on the build output.
+    if
+      plugin.enabled
+      and plugin.build
+      and lock_data
+      and util.exists(plugin.dir .. "/.git/HEAD")
+      and not (locked and locked.built == locked.commit)
+    then
+      plugin.load_status = "unbuilt"
+      plugin.load_error = "build has not run for the locked commit; run amber_build"
+      rex.log("warn", "amber: " .. plugin.name .. ": " .. plugin.load_error)
+    else
+      load_plugin(plugin, context)
+    end
   end
 end
 

@@ -42,6 +42,14 @@ function M.read(path)
       or not entry.commit:match("^[0-9a-f]+$")
       or (#entry.commit ~= 40 and #entry.commit ~= 64)
       or (entry.version ~= nil and type(entry.version) ~= "string")
+      or (
+        entry.built ~= nil
+        and (
+          type(entry.built) ~= "string"
+          or not entry.built:match("^[0-9a-f]+$")
+          or (#entry.built ~= 40 and #entry.built ~= 64)
+        )
+      )
     then
       return nil, "invalid lockfile entry: " .. tostring(name)
     end

@@ -10,7 +10,8 @@ mkdir -p "$fixture/alice/example/.git" "$fixture/alice/example/lua/example" "$fi
   "$fixture/elly/utility--panes-bells/.git" "$fixture/elly/utility--panes-bells/panes/bells/lua/bells" \
   "$fixture/local-mono/panes/tools/lua/tools" \
   "$fixture/temporary2/.git" "$fixture/temporary2/panes/bells/lua/bells" \
-  "$fixture/temporary3/.git" "$fixture/temporary4/.git" "$fixture/elly/claimed--gone/.git"
+  "$fixture/temporary3/.git" "$fixture/temporary4/.git" "$fixture/elly/claimed--gone/.git" \
+  "$fixture/dave/built/.git" "$fixture/dave/built/lua/built" "$fixture/dave/plain/.git" "$fixture/dave/plain/lua/plain"
 printf 'ref: refs/heads/main\n' >"$fixture/alice/example/.git/HEAD"
 printf 'ref: refs/heads/main\n' >"$fixture/carol/shared/.git/HEAD"
 printf 'ref: refs/heads/main\n' >"$fixture/temporary/.git/HEAD"
@@ -32,4 +33,8 @@ printf '%s\n' 'return { setup = function() _G.subdir_message = "bells" end }' >"
 printf '%s\n' 'return { setup = function() _G.subdir_message = "local" end }' >"$fixture/local-mono/panes/tools/lua/tools/init.lua"
 printf '%s\n' 'return { setup = function() end }' >"$fixture/temporary2/panes/bells/lua/bells/init.lua"
 printf '%s\n' 'return { setup = function() _G.shared_source = "nvim" end }' >"$fixture/carol/shared/lua/shared/init.lua"
+printf 'ref: refs/heads/main\n' >"$fixture/dave/built/.git/HEAD"
+printf 'ref: refs/heads/main\n' >"$fixture/dave/plain/.git/HEAD"
+printf '%s\n' 'return { setup = function(_, ctx) _G.built_ctx = ctx end }' >"$fixture/dave/built/lua/built/init.lua"
+printf '%s\n' 'return { setup = function(_, ctx) _G.plain_ctx = ctx end }' >"$fixture/dave/plain/lua/plain/init.lua"
 lua tests/test.lua "$fixture"

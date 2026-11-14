@@ -11,7 +11,7 @@ Build for Lua 5.1 and the Rex server environment. Check the target repository's 
 
 1. Choose a unique Lua module namespace. Amber defaults `main` to the repository name, with a trailing `.rex` removed; tell users to set `main` explicitly when the entry point differs.
 2. Place the entry point at `lua/<main>.lua` or `lua/<main>/init.lua`, replacing dots in `main` with directory separators. For a repository with separate Rex code, use the equivalent path under `rex/lua/`. If `rex/lua/` exists, Amber exclusively uses it and never falls back to `lua/`.
-3. Return a table with a `setup(opts)` function. Amber calls it with the plugin spec's `opts` table (empty by default) on every config load, reload, and config check. Metadata is optional. Handle missing option fields, document defaults, and do not rely on setup running only once.
+3. Return a table with a `setup(opts, ctx)` function. Amber calls it with the plugin spec's `opts` table (empty by default) and a context table on every config load, reload, and config check. `ctx` has `name`, `dir`, `module_dir`, `commit` (the locked commit, possibly `nil`), and `data_dir` (a state directory Amber names but does not create). Resolve paths from `ctx` rather than substituting them at install time, and tolerate `ctx` being absent in tests. Metadata is optional. Handle missing option fields, document defaults, and do not rely on setup running only once.
 4. Put plugin-owned submodules beneath the main namespace, e.g. `require("example_rex.helper")` at `lua/example_rex/helper.lua`. Amber's searcher is scoped to `main` and its dotted descendants; it does not add arbitrary plugin directories to `package.path` or resolve dependencies. Lua's `package.loaded` and module names are shared, so avoid collisions.
 
 Minimal `lua/example_rex/init.lua`:
@@ -34,6 +34,12 @@ return M
 ```
 
 Register actions and bindings during setup; defer operations that require a live session or client to callbacks. Config checks execute setup too, so avoid runtime, network, and filesystem side effects during setup beyond configuration. Plugins are trusted code, not sandboxed. For subprocesses use `rex.exec` with an argument array, check startup errors and nonzero exit status, and respect action deadlines; `os.execute` and `io.popen` are unavailable in Rex.
+
+## Build steps and background processes
+
+If the plugin needs work after checkout, document a `build` option for the Amber spec (a shell command, a function, or a list; see the README) rather than an install script. It runs on install and update within Amber's action budget, so keep it short. Amber holds back `setup` until it has succeeded.
+
+Amber has no service management and does not know where the `rex` binary is. For a long-running watcher, check the current Rex Lua reference, start it from `setup` with a detached `rex.exec.start`, resolve its script path from `ctx.dir`, keep state in `ctx.data_dir`, and make it exit when another instance is already running, because `setup` runs on every config load and check. State what you verified against a live Rex.
 
 ## Document installation
 
