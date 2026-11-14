@@ -37,7 +37,7 @@ Register actions and bindings during setup; defer operations that require a live
 
 ## Build steps and background processes
 
-If the plugin needs work after checkout, document a `build` option for the Amber spec (a shell command, a function, or a list; see the README) rather than an install script. It runs on install and update within Amber's action budget, so keep it short. Amber holds back `setup` until it has succeeded.
+If the plugin needs work after checkout, document a `build` option for the Amber spec (a shell command, a function, or a list; see the README) rather than an install script. It runs on install and update within Amber's action budget, so keep it short. Amber holds back `setup` until it has succeeded. Put build output in `.gitignore` or under `data_dir` (`AMBER_PLUGIN_DATA_DIR` for shell steps): untracked files make `amber_restore` and `amber_update` refuse the checkout.
 
 Amber has no service management and does not know where the `rex` binary is. For a long-running watcher, check the current Rex Lua reference, start it from `setup` with a detached `rex.exec.start`, resolve its script path from `ctx.dir`, keep state in `ctx.data_dir`, and make it exit when another instance is already running, because `setup` runs on every config load and check. State what you verified against a live Rex.
 

@@ -70,19 +70,24 @@ function M.setup(config)
       if not plugin.local_path then
         by_dir[plugin.dir] = true
       end
+      plugin.data_dir = state_root and state_root .. "/" .. plugin.slug or nil
       by_name[plugin.name] = plugin
       plugins[#plugins + 1] = plugin
     end
   end
 
+  -- Runs the Git operation and records the checkout inside one lockfile
+  -- transaction, then runs any pending build outside it so a slow or killed
+  -- build never leaves the lockfile guard behind. A second transaction records
+  -- the build only if the lock entry still points at the commit that was built.
   local function manage(plugin, deadline, operation)
-    local build_err
+    local pending
     local result, err = lock.transaction(lockfile, function(data)
       local entry = data.plugins[plugin.name]
       if operation == "restore" and not entry then
         return nil, "no lockfile entry for " .. plugin.name
       end
-      local status, err
+      local status, op_err
       if operation == "build" then
         if plugin.local_path then
           return nil, "local plugins are managed outside amber"
@@ -90,21 +95,26 @@ function M.setup(config)
         if not util.exists(plugin.dir .. "/.git/HEAD") then
           return nil, "not installed"
         end
-        status = plugin.build and "built" or "no build step"
+        if not plugin.build then
+          return "no build step"
+        end
+        if not entry then
+          return nil, "no lockfile entry; run amber_install"
+        end
+        status = "built"
       elseif operation == "install" then
-        status, err = git.install(plugin, deadline, entry and entry.commit)
+        status, op_err = git.install(plugin, deadline, entry and entry.commit)
       elseif operation == "restore" then
-        status, err = git.restore(plugin, deadline, entry.commit)
+        status, op_err = git.restore(plugin, deadline, entry.commit)
       else
-        status, err = git.update(plugin, deadline)
+        status, op_err = git.update(plugin, deadline)
       end
       if not status then
-        return nil, err
+        return nil, op_err
       end
       local changed = false
-      local hash, hash_err
       if operation == "update" or (operation == "install" and not entry) then
-        hash, hash_err = git.commit(plugin, deadline)
+        local hash, hash_err = git.commit(plugin, deadline)
         if not hash then
           return nil, "checkout succeeded but lockfile was not updated: " .. tostring(hash_err)
         end
@@ -114,30 +124,41 @@ function M.setup(config)
         data.plugins[plugin.name] = entry
         changed = true
       end
-      if plugin.build and entry then
-        if not hash then
-          hash, hash_err = git.commit(plugin, deadline)
-        end
-        if not hash then
-          build_err = "cannot read checkout commit for build: " .. tostring(hash_err)
-        elseif operation == "build" or entry.built ~= hash then
-          local built, built_err = build.run(plugin, hash, deadline)
-          if built then
-            entry.built = hash
-            changed = true
-          else
-            build_err = built_err
-          end
-        end
+      -- The build always targets the locked commit, never whatever HEAD is.
+      if plugin.build and entry and (operation == "build" or entry.built ~= entry.commit) then
+        pending = entry.commit
       end
       return status, nil, changed
     end)
-    -- The checkout and lock entry are recorded even when the build fails, so
-    -- the failure is reported after the transaction and amber_build can retry.
-    if result and build_err then
+    if not result or not pending then
+      return result, err
+    end
+
+    -- The checkout and lock entry are already recorded, so a failure below
+    -- leaves the plugin unbuilt and amber_build can retry.
+    local head, head_err = git.commit(plugin, deadline)
+    if not head then
+      return nil, "cannot read checkout commit for build: " .. tostring(head_err)
+    end
+    if head ~= pending then
+      return nil, "checkout differs from lockfile; run amber_restore before building"
+    end
+    local built, build_err = build.run(plugin, pending, deadline)
+    if not built then
       return nil, build_err
     end
-    return result, err
+    local recorded, record_err = lock.transaction(lockfile, function(data)
+      local entry = data.plugins[plugin.name]
+      if not entry or entry.commit ~= pending then
+        return nil, "lockfile changed during the build; run amber_build again"
+      end
+      entry.built = pending
+      return result, nil, true
+    end)
+    if not recorded then
+      return nil, "build succeeded but lockfile was not updated: " .. tostring(record_err)
+    end
+    return result
   end
   register_action("amber_install", "Install Rex Plugins", function(plugin, deadline)
     return manage(plugin, deadline, "install")
@@ -259,7 +280,7 @@ function M.setup(config)
       dir = plugin.dir,
       module_dir = plugin.module_dir,
       commit = locked and locked.commit or nil,
-      data_dir = state_root and state_root .. "/" .. plugin.slug or nil,
+      data_dir = plugin.data_dir,
     }
     -- A plugin that needs a build is not set up until the build has run for
     -- its locked commit, since setup typically depends on the build output.

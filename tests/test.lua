@@ -777,6 +777,64 @@ test("rejects malformed built entries in the lockfile", function()
   assert(lock.read(path))
 end)
 
+test("amber_build requires a lock entry", function(amber, actions, _, calls)
+  amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
+  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  assert(not ok and tostring(err):match("no lockfile entry"), tostring(err))
+  assert(count_calls(calls, "sh") == 0, "nothing may be built without a lock entry")
+end)
+
+test("does not build a drifted checkout", function(amber, actions, _, calls, behavior)
+  amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
+  actions.amber_install.run({}, { plugin = "dave/built" })
+  assert(count_calls(calls, "sh") == 1)
+  behavior.head_hash = string.rep("b", 40)
+  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  assert(not ok and tostring(err):match("checkout differs from lockfile"), tostring(err))
+  assert(count_calls(calls, "sh") == 1, "a drifted checkout must not be built")
+  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+end)
+
+test("builds outside the lockfile guard", function(amber, actions, _, calls, behavior)
+  local guard = root .. "/test-lock.json.lock"
+  local function held()
+    local depth = 0
+    for _, call in ipairs(calls) do
+      if call.argv[3] == guard then
+        depth = depth + (call.argv[1] == "mkdir" and 1 or -1)
+      end
+    end
+    return depth
+  end
+  local during
+  local move_lock = false
+  amber.setup({
+    root = root,
+    plugins = {
+      {
+        "dave/built",
+        build = function(ctx)
+          during = held()
+          if move_lock then
+            behavior.lock_data.plugins["dave/built"].commit = string.rep("c", 40)
+          end
+          return ctx.exec({ "sh", "-c", "true" }, { env = { EXTRA = "1" } })
+        end,
+      },
+    },
+  })
+  actions.amber_install.run({}, { plugin = "dave/built" })
+  assert(during == 0, "the lockfile guard must be released before building")
+  local build = assert(called(calls, "sh", "-c"))
+  assert(build.opts.env.EXTRA == "1" and build.opts.env.AMBER_PLUGIN_NAME == "dave/built")
+  assert(build.opts.env.AMBER_PLUGIN_DIR == root .. "/dave/built")
+  assert(build.opts.env.AMBER_PLUGIN_MODULE_DIR == root .. "/dave/built")
+  move_lock = true
+  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  assert(not ok and tostring(err):match("lockfile changed during the build"), tostring(err))
+  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+end)
+
 test("rejects expired operation budgets", function()
   local git = assert(loadfile("amber/git.lua"))(dofile("amber/util.lua"))
   local status, err = git.install({ local_path = false }, os.time() - 1)

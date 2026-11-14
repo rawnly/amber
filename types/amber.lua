@@ -21,8 +21,9 @@
 ---@field name string
 ---@field dir string
 ---@field module_dir string
----@field commit string Checked-out commit being built.
----@field exec fun(argv: string[], opts?: RexExecOptions): RexExecResult?, string? Runs a command in module_dir within the remaining action budget.
+---@field data_dir? string Per-plugin state directory; Amber does not create it.
+---@field commit string Locked commit being built; the checkout is verified to match it.
+---@field exec fun(argv: string[], opts?: RexExecOptions): RexExecResult?, string? Runs a command in module_dir within the remaining action budget; opts.env extends the AMBER_PLUGIN_* variables.
 
 ---@class AmberConfig
 ---@field root? string Absolute directory for managed checkouts.
@@ -44,6 +45,7 @@
 ---@field enabled boolean
 ---@field version? string
 ---@field build? (string|fun(ctx: AmberBuildContext): any)[]
+---@field data_dir? string Per-plugin state directory, set by setup.
 ---@field load_status? string
 ---@field load_error? string
 

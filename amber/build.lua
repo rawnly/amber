@@ -24,12 +24,18 @@ end
 ---@return boolean? ok
 ---@return string? err
 local function run(plugin, commit, deadline)
-  local env = { AMBER_PLUGIN_NAME = plugin.name, AMBER_PLUGIN_DIR = plugin.module_dir }
+  local base_env = {
+    AMBER_PLUGIN_NAME = plugin.name,
+    AMBER_PLUGIN_DIR = plugin.dir,
+    AMBER_PLUGIN_MODULE_DIR = plugin.module_dir,
+    AMBER_PLUGIN_DATA_DIR = plugin.data_dir,
+  }
   ---@type AmberBuildContext
   local context = {
     name = plugin.name,
     dir = plugin.dir,
     module_dir = plugin.module_dir,
+    data_dir = plugin.data_dir,
     commit = commit,
     exec = function(argv, opts)
       local timeout, budget_err = remaining_budget(deadline)
@@ -37,13 +43,21 @@ local function run(plugin, commit, deadline)
         return nil, budget_err
       end
       opts = opts or {}
+      -- Caller variables extend the Amber ones instead of replacing them.
+      local env = {}
+      for key, value in pairs(base_env) do
+        env[key] = value
+      end
+      for key, value in pairs(opts.env or {}) do
+        env[key] = value
+      end
       local limit = timeout
       if opts.timeout then
         limit = limit and math.min(limit, opts.timeout) or opts.timeout
       end
       return util.run(argv, {
         cwd = opts.cwd or plugin.module_dir,
-        env = opts.env or env,
+        env = env,
         timeout = limit,
       })
     end,

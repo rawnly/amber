@@ -102,13 +102,16 @@ Some plugins need work after checkout, such as compiling a helper. Declare it wi
 },
 ```
 
-- A string runs as `sh -c <string>` in the plugin directory (`module_dir` for `subdir` plugins). `AMBER_PLUGIN_NAME` and `AMBER_PLUGIN_DIR` are set in its environment.
-- A function receives `{ name, dir, module_dir, commit, exec }`. `exec(argv, opts)` runs a command in `module_dir` within the remaining action time. The step fails if the function raises an error, returns `false`, or returns `nil` and a message.
+- A string runs as `sh -c <string>` in the plugin directory (`module_dir` for `subdir` plugins). Its environment has `AMBER_PLUGIN_NAME`, `AMBER_PLUGIN_DIR` (the checkout), `AMBER_PLUGIN_MODULE_DIR`, and `AMBER_PLUGIN_DATA_DIR`.
+- A function receives `{ name, dir, module_dir, data_dir, commit, exec }`. `exec(argv, opts)` runs a command in `module_dir` within the remaining action time; `opts.env` adds to the variables above instead of replacing them. The step fails if the function raises an error, returns `false`, or returns `nil` and a message.
 - `build = false` disables the step. Local `path` plugins cannot have one: Amber never runs anything for them.
-- `amber_install`, `amber_update`, and `amber_restore` run the build when the checked-out commit differs from the one recorded as built in the lockfile (`built`). An unchanged commit is not rebuilt. `amber_build` forces it.
+- `amber_install`, `amber_update`, and `amber_restore` run the build when the locked commit differs from the one recorded as built in the lockfile (`built`). An unchanged commit is not rebuilt. `amber_build` forces it.
+- A build always targets the locked commit. If the checkout has moved away from it, the build is refused; run `amber_restore` first. `amber_build` needs a lock entry, so run `amber_install` first if the lockfile was removed.
 - A failed build still records the checkout in the lockfile, fails the action, and leaves the plugin unbuilt. Fix the cause and run `amber_build`.
+- Keep build output out of Git's way. `amber_restore` and `amber_update` refuse checkouts with untracked or modified files, so list generated files in the plugin's `.gitignore` or write them to `data_dir`.
 - Until a build has run for the locked commit, Amber does not call the plugin's `setup`; `amber_status` reports `unbuilt`. Adding `build` to an existing plugin therefore needs one `amber_build` and a reload. If the lockfile cannot be read, Amber cannot tell and does not hold plugins back.
-- Steps share the roughly 23-second action budget with Git. Anything longer fails with a timeout; start long-running work from the plugin itself instead (see [Background processes](#background-processes)).
+- Steps share the roughly 23-second action budget with Git, and a bulk action shares it across all plugins. Anything longer fails with a timeout; build slow plugins one at a time with `plugin=owner/repo`, or start long-running work from the plugin itself (see [Background processes](#background-processes)).
+- The build runs after the lockfile is released, so other Amber actions are not blocked by it. If the lock entry changes while it runs, the result is not recorded and `amber_build` must run again.
 - Build commands are trusted code with the Rex server's privileges, like plugin Lua. Read them before installing.
 
 ## Subdirectory plugins
