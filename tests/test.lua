@@ -757,6 +757,7 @@ test("rejects malformed built entries in the lockfile", function()
   file:close()
   local lock = assert(loadfile("amber/lock.lua"))(dofile("amber/util.lua"))
   for _, built in ipairs({ "xyz", 7 }) do
+    ---@diagnostic disable-next-line: duplicate-set-field
     rex.json.decode = function()
       return {
         format = 1,
@@ -766,6 +767,7 @@ test("rejects malformed built entries in the lockfile", function()
     local data, err = lock.read(path)
     assert(not data and err:match("invalid lockfile entry"), tostring(built))
   end
+  ---@diagnostic disable-next-line: duplicate-set-field
   rex.json.decode = function()
     return {
       format = 1,

@@ -115,7 +115,9 @@ function M.setup(config)
         changed = true
       end
       if plugin.build and entry then
-        hash, hash_err = hash or git.commit(plugin, deadline)
+        if not hash then
+          hash, hash_err = git.commit(plugin, deadline)
+        end
         if not hash then
           build_err = "cannot read checkout commit for build: " .. tostring(hash_err)
         elseif operation == "build" or entry.built ~= hash then
