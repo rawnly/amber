@@ -21,6 +21,8 @@ local function test(name, fn)
   end
   package.loaded.example, package.loaded.shared, package.loaded.keys, package.loaded.tools =
     nil, nil, nil, nil
+  package.loaded.built, package.loaded.plain = nil, nil
+  _G.built_ctx, _G.plain_ctx = nil, nil
   _G.plugin_message = nil
   _G.subdir_message = nil
   rex = {
@@ -64,6 +66,15 @@ local function test(name, fn)
           stdout = root .. "/" .. (behavior.temp or "temporary") .. "\n",
           stderr = "",
           code = 0,
+        }
+      end
+      if argv[1] == "sh" and argv[2] == "-c" then
+        local failed = behavior.build_fail
+        return {
+          ok = not failed,
+          stdout = "",
+          stderr = failed and "build exploded" or "",
+          code = failed and 1 or 0,
         }
       end
       if argv[1] == "git" and argv[2] == "clone" then
@@ -598,6 +609,230 @@ test("updates a clean detached checkout after restore", function(amber, actions,
   assert(actions.amber_update.run({}, { plugin = "alice/example" }).status == "updated")
   local checkout = called(calls, "git", "checkout")
   assert(checkout and checkout.argv[4] == "refs/remotes/origin/main")
+end)
+
+local function count_calls(calls, command)
+  local total = 0
+  for _, call in ipairs(calls) do
+    if call.argv[1] == command then
+      total = total + 1
+    end
+  end
+  return total
+end
+
+test("passes a runtime context to setup", function(amber, actions)
+  amber.setup({ root = root, plugins = { "dave/plain" } })
+  local context = assert(_G.plain_ctx, "setup must receive a context")
+  assert(context.name == "dave/plain" and context.dir == root .. "/dave/plain")
+  assert(context.module_dir == context.dir and context.commit == nil)
+  assert(context.data_dir:match("/rex/amber/dave/plain$"))
+  actions.amber_install.run({}, { plugin = "dave/plain" })
+  amber.setup({ root = root, plugins = { "dave/plain" } })
+  assert(_G.plain_ctx.commit == string.rep("a", 40))
+end)
+
+test("builds on install and gates setup until built", function(amber, actions, logs, calls)
+  local spec = { "dave/built", build = "make" }
+  amber.setup({ root = root, plugins = { spec } })
+  assert(_G.built_ctx == nil, "setup must wait for the build")
+  assert(logs[#logs][2]:match("run amber_build"))
+  assert(actions.amber_status.run({}, {})["dave/built"].loaded == "unbuilt")
+  assert(actions.amber_install.run({}, { plugin = "dave/built" }).status == "already installed")
+  local build = assert(called(calls, "sh", "-c"))
+  assert(build.argv[3] == "make" and build.opts.cwd == root .. "/dave/built")
+  assert(build.opts.env.AMBER_PLUGIN_NAME == "dave/built")
+  assert(build.opts.timeout and build.opts.timeout <= 23)
+  amber.setup({ root = root, plugins = { spec } })
+  assert(_G.built_ctx and _G.built_ctx.commit == string.rep("a", 40))
+  assert(actions.amber_status.run({}, {})["dave/built"].built == true)
+  actions.amber_install.run({}, { plugin = "dave/built" })
+  assert(count_calls(calls, "sh") == 1, "an unchanged commit must not rebuild")
+end)
+
+test("a failed build is retryable", function(amber, actions, _, calls, behavior)
+  amber.setup({ root = root, plugins = { { "dave/built", build = { "make", "make install" } } } })
+  behavior.build_fail = true
+  local ok, err = pcall(actions.amber_install.run, {}, { plugin = "dave/built" })
+  assert(not ok and tostring(err):match("build step 1 failed: build exploded"), tostring(err))
+  assert(count_calls(calls, "sh") == 1, "later steps must not run after a failure")
+  local entry = behavior.lock_data.plugins["dave/built"]
+  assert(entry.commit == string.rep("a", 40) and entry.built == nil)
+  assert(actions.amber_status.run({}, {})["dave/built"].built == false)
+  behavior.build_fail = false
+  assert(actions.amber_build.run({}, { plugin = "dave/built" }).status == "built")
+  assert(count_calls(calls, "sh") == 3)
+  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+end)
+
+test("amber_build rebuilds and skips plugins without one", function(amber, actions, _, calls, b)
+  local behavior = b
+  amber.setup({ root = root, plugins = { { "dave/built", build = "make" }, "dave/plain" } })
+  actions.amber_install.run({}, {})
+  assert(count_calls(calls, "sh") == 1)
+  local result = actions.amber_build.run({}, {})
+  assert(result.plugins["dave/built"].status == "built")
+  assert(result.plugins["dave/plain"].status == "no build step")
+  assert(count_calls(calls, "sh") == 2, "amber_build must rebuild even when already built")
+  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+  amber.setup({ root = root, plugins = { { "bob/missing", build = "make" } } })
+  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "bob/missing" })
+  assert(not ok and tostring(err):match("not installed"))
+end)
+
+test("a new commit invalidates the recorded build", function(amber, actions, _, calls, behavior)
+  amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
+  actions.amber_install.run({}, { plugin = "dave/built" })
+  actions.amber_update.run({}, { plugin = "dave/built" })
+  assert(count_calls(calls, "sh") == 1, "an update to the same commit keeps the build")
+  behavior.head_hash = string.rep("b", 40)
+  actions.amber_update.run({}, { plugin = "dave/built" })
+  assert(count_calls(calls, "sh") == 2)
+  local entry = behavior.lock_data.plugins["dave/built"]
+  assert(entry.commit == string.rep("b", 40) and entry.built == string.rep("b", 40))
+end)
+
+test("runs function build steps and reports failures", function(amber, actions, _, _, behavior)
+  local seen
+  local mode = "ok"
+  amber.setup({
+    root = root,
+    plugins = {
+      {
+        "dave/built",
+        build = function(ctx)
+          seen = ctx
+          if mode == "false" then
+            return false
+          elseif mode == "message" then
+            return nil, "no compiler"
+          elseif mode == "raise" then
+            error("boom", 0)
+          end
+          return ctx.exec({ "sh", "-c", "true" })
+        end,
+      },
+    },
+  })
+  assert(actions.amber_install.run({}, { plugin = "dave/built" }).status == "already installed")
+  assert(seen.name == "dave/built" and seen.commit == string.rep("a", 40))
+  assert(seen.dir == root .. "/dave/built" and seen.module_dir == seen.dir)
+  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+  for failure, expected in pairs({
+    ["false"] = "returned false",
+    message = "no compiler",
+    raise = "boom",
+  }) do
+    mode = failure
+    local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+    assert(not ok and tostring(err):match(expected), failure .. ": " .. tostring(err))
+  end
+end)
+
+test("validates build specifications", function(amber, _, logs)
+  for _, build in ipairs({ 7, true, {}, { 1 }, { "" }, { make = "make" }, "   " }) do
+    amber.setup({
+      root = root,
+      install = "manual",
+      ---@diagnostic disable-next-line: assign-type-mismatch
+      plugins = { { "dave/built", build = build } },
+    })
+    assert(logs[#logs][2]:match("invalid plugin specification"), "accepted " .. tostring(build))
+  end
+  amber.setup({
+    root = root,
+    install = "manual",
+    plugins = { { "dave/built", path = root .. "/dave/built", build = "make" } },
+  })
+  assert(logs[#logs][2]:match("build is not supported for local plugins"))
+  local before = #logs
+  amber.setup({ root = root, plugins = { { "dave/plain", build = false } } })
+  assert(#logs == before and _G.plain_ctx, "build = false must disable the build")
+end)
+
+test("rejects malformed built entries in the lockfile", function()
+  local path = root .. "/test-lock.json"
+  local file = assert(io.open(path, "w"))
+  file:write("{}")
+  file:close()
+  local lock = assert(loadfile("amber/lock.lua"))(dofile("amber/util.lua"))
+  for _, built in ipairs({ "xyz", 7 }) do
+    ---@diagnostic disable-next-line: duplicate-set-field
+    rex.json.decode = function()
+      return {
+        format = 1,
+        plugins = { ["a/b"] = { commit = string.rep("a", 40), built = built } },
+      }
+    end
+    local data, err = lock.read(path)
+    assert(not data and err:match("invalid lockfile entry"), tostring(built))
+  end
+  ---@diagnostic disable-next-line: duplicate-set-field
+  rex.json.decode = function()
+    return {
+      format = 1,
+      plugins = { ["a/b"] = { commit = string.rep("a", 40), built = string.rep("a", 40) } },
+    }
+  end
+  assert(lock.read(path))
+end)
+
+test("amber_build requires a lock entry", function(amber, actions, _, calls)
+  amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
+  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  assert(not ok and tostring(err):match("no lockfile entry"), tostring(err))
+  assert(count_calls(calls, "sh") == 0, "nothing may be built without a lock entry")
+end)
+
+test("does not build a drifted checkout", function(amber, actions, _, calls, behavior)
+  amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
+  actions.amber_install.run({}, { plugin = "dave/built" })
+  assert(count_calls(calls, "sh") == 1)
+  behavior.head_hash = string.rep("b", 40)
+  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  assert(not ok and tostring(err):match("checkout differs from lockfile"), tostring(err))
+  assert(count_calls(calls, "sh") == 1, "a drifted checkout must not be built")
+  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+end)
+
+test("builds outside the lockfile guard", function(amber, actions, _, calls, behavior)
+  local guard = root .. "/test-lock.json.lock"
+  local function held()
+    local depth = 0
+    for _, call in ipairs(calls) do
+      if call.argv[3] == guard then
+        depth = depth + (call.argv[1] == "mkdir" and 1 or -1)
+      end
+    end
+    return depth
+  end
+  local during
+  local move_lock = false
+  amber.setup({
+    root = root,
+    plugins = {
+      {
+        "dave/built",
+        build = function(ctx)
+          during = held()
+          if move_lock then
+            behavior.lock_data.plugins["dave/built"].commit = string.rep("c", 40)
+          end
+          return ctx.exec({ "sh", "-c", "true" }, { env = { EXTRA = "1" } })
+        end,
+      },
+    },
+  })
+  actions.amber_install.run({}, { plugin = "dave/built" })
+  assert(during == 0, "the lockfile guard must be released before building")
+  local build = assert(called(calls, "sh", "-c"))
+  assert(build.opts.env.EXTRA == "1" and build.opts.env.AMBER_PLUGIN_NAME == "dave/built")
+  assert(build.opts.env.AMBER_PLUGIN_DIR == root .. "/dave/built")
+  assert(build.opts.env.AMBER_PLUGIN_MODULE_DIR == root .. "/dave/built")
+  move_lock = true
+  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  assert(not ok and tostring(err):match("lockfile changed during the build"), tostring(err))
+  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
 end)
 
 test("rejects expired operation budgets", function()

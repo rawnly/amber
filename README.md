@@ -6,6 +6,7 @@ Amber installs GitHub Lua plugins on the machine running the Rex server and load
 
 - Plugin specs in Lua, in the style of lazy.nvim.
 - Semver versions and a lockfile for reproducible installs.
+- A `build` step that runs after install or update, like lazy.nvim.
 - An agent skill for writing Amber plugins.
 
 ## Quick start
@@ -51,7 +52,8 @@ Run with `rex do <action>`. Add `plugin=owner/repo` to target one plugin. Withou
 | `amber_install` | Clones missing plugins. Uses the locked commit if one exists. Records new commits in the lockfile. |
 | `amber_update` | Resolves the newest commit or version, checks it out, rewrites the lock entry. Unversioned: `git pull --ff-only`. Versioned: fetch tags, check out detached. Never resets local changes. |
 | `amber_restore` | Checks out the locked commit (detached). Refuses dirty checkouts. Fails if the commit is unavailable. |
-| `amber_status` | Shows load status, errors, path, commit, lock match, and version match. Does not fetch. |
+| `amber_build` | Runs the `build` step of plugins that declare one, even if it already ran for the locked commit. |
+| `amber_status` | Shows load status, errors, path, commit, lock match, build state, and version match. Does not fetch. |
 
 `amber_status` takes no `plugin` argument. Load failures also go to `rex.log`; see [Rex logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs).
 
@@ -67,6 +69,7 @@ A plugin is `"owner/repo"` or a table whose first element is that name. Unknown 
 | `path` | none | Absolute path to a local checkout. Never installed, updated, or locked. |
 | `enabled` | `true` | `false` skips loading and rejects actions for it. |
 | `subdir` | none | Repository subdirectory to load the plugin from; requires `main`. Enables monorepo layouts. |
+| `build` | none | Command, function, or list run after install or update; see [Build steps](#build-steps). Not allowed with `path`. |
 
 Options for `amber.setup` itself:
 
@@ -83,6 +86,33 @@ For development, point `path` at a local checkout:
 ```lua
 { "rawnly/smart-splits-backend-rex", path = "/absolute/path/to/smart-splits-backend-rex", main = "smart-splits-rex" }
 ```
+
+## Build steps
+
+Some plugins need work after checkout, such as compiling a helper. Declare it with `build`:
+
+```lua
+{ "alice/rex-fast", build = "make release" },                 -- shell command
+{ "alice/rex-fast", build = { "make deps", "make release" } }, -- steps run in order
+{
+  "alice/rex-fast",
+  build = function(ctx)
+    return ctx.exec({ "make", "release" })
+  end,
+},
+```
+
+- A string runs as `sh -c <string>` in the plugin directory (`module_dir` for `subdir` plugins). Its environment has `AMBER_PLUGIN_NAME`, `AMBER_PLUGIN_DIR` (the checkout), `AMBER_PLUGIN_MODULE_DIR`, and `AMBER_PLUGIN_DATA_DIR`.
+- A function receives `{ name, dir, module_dir, data_dir, commit, exec }`. `exec(argv, opts)` runs a command in `module_dir` within the remaining action time; `opts.env` adds to the variables above instead of replacing them. The step fails if the function raises an error, returns `false`, or returns `nil` and a message.
+- `build = false` disables the step. Local `path` plugins cannot have one: Amber never runs anything for them.
+- `amber_install`, `amber_update`, and `amber_restore` run the build when the locked commit differs from the one recorded as built in the lockfile (`built`). An unchanged commit is not rebuilt. `amber_build` forces it.
+- A build always targets the locked commit. If the checkout has moved away from it, the build is refused; run `amber_restore` first. `amber_build` needs a lock entry, so run `amber_install` first if the lockfile was removed.
+- A failed build still records the checkout in the lockfile, fails the action, and leaves the plugin unbuilt. Fix the cause and run `amber_build`.
+- Keep build output out of Git's way. `amber_restore` and `amber_update` refuse checkouts with untracked or modified files, so list generated files in the plugin's `.gitignore` or write them to `data_dir`.
+- Until a build has run for the locked commit, Amber does not call the plugin's `setup`; `amber_status` reports `unbuilt`. Adding `build` to an existing plugin therefore needs one `amber_build` and a reload. If the lockfile cannot be read, Amber cannot tell and does not hold plugins back.
+- Steps share the roughly 23-second action budget with Git, and a bulk action shares it across all plugins. Anything longer fails with a timeout; build slow plugins one at a time with `plugin=owner/repo`, or start long-running work from the plugin itself (see [Background processes](#background-processes)).
+- The build runs after the lockfile is released, so other Amber actions are not blocked by it. If the lock entry changes while it runs, the result is not recorded and `amber_build` must run again.
+- Build commands are trusted code with the Rex server's privileges, like plugin Lua. Read them before installing.
 
 ## Subdirectory plugins
 
@@ -120,7 +150,7 @@ amber.setup({
 - Tags win over branches of the same name. Branches resolve to `origin/<branch>`.
 - Changing `version` does not move an existing checkout. Run `amber_update`.
 
-Amber records exact commits in the lockfile. The file is JSON and safe to commit. The lock is authoritative: `amber_install` and `amber_restore` use it until you run `amber_update`. Install never replaces an existing entry. Unrelated entries are kept and nothing is pruned.
+Amber records exact commits in the lockfile, plus a `built` commit for plugins with a build step. The file is JSON and safe to commit. The lock is authoritative: `amber_install` and `amber_restore` use it until you run `amber_update`. Install never replaces an existing entry. Unrelated entries are kept and nothing is pruned.
 
 ```sh
 rex do amber_restore                           # all enabled managed plugins
@@ -153,8 +183,28 @@ return M
 ```
 
 - Pick a unique module name. The Lua module namespace and `package.loaded` are shared.
+- `setup` also receives a second argument, `ctx`, so a plugin does not need paths filled in at install time:
+
+  | Field | Meaning |
+  | --- | --- |
+  | `ctx.name` | Plugin identity, `owner/repo` or `owner/repo@subdir`. |
+  | `ctx.dir` | Checkout directory. |
+  | `ctx.module_dir` | Directory the module tree resolves from; differs from `dir` for `subdir` plugins. |
+  | `ctx.commit` | Commit recorded in the lockfile, or `nil`. |
+  | `ctx.data_dir` | State directory `$XDG_STATE_HOME/rex/amber/<owner>/<repo>` (default `~/.local/state`). Amber names it but never creates it. |
+
+  Plugins that ignore `ctx` keep working. Amber does not tell a plugin where the `rex` binary is.
 - Plugins are trusted Lua code with the Rex server's privileges. They are not sandboxed.
 - Config checks run `setup` too. Avoid side effects beyond configuration.
+
+### Background processes
+
+Amber manages files, not processes: it has no service support and does not write launchd or systemd units. A plugin that needs a long-running watcher should start it itself from `setup`, using paths from `ctx` instead of values substituted at install time. Details to check against the current [Rex Lua reference](https://www.superlogical.com/rex/docs/reference/lua), because Amber's tests stub Rex and do not exercise them:
+
+- `rex.on` and `rex.every` are documented as script-only, so the watcher is a Lua script run with `rex do`, not code in `setup`.
+- `rex.exec.start` with `detach = true` starts a process that outlives the config load.
+- `setup` runs on every config load, reload, and `rex config check`. Make the script exit when another instance is already running (for example by labeling its client connection and checking for the label), and consider whether a check should start it at all.
+- Amber does not stop such a process on update or removal; the plugin should handle restarts itself.
 
 Install the [authoring skill](.agents/skills/rex-plugin-authoring/SKILL.md) for your agent:
 
@@ -169,7 +219,8 @@ npx skills add rawnly/amber --skill rex-plugin-authoring
 - GitHub `owner/repo` only. No other Git URLs.
 - No dependency resolution.
 - No lazy loading.
-- No uninstall. Remove the declaration and delete the directory yourself.
+- No uninstall. Remove the declaration and delete the directory yourself. Files a build created outside the plugin directory stay too.
+- No service or daemon management.
 
 ## Troubleshooting
 
@@ -182,6 +233,7 @@ npx skills add rawnly/amber --skill rex-plugin-authoring
 | Lockfile error | The file is corrupt. Fix or remove it. Amber will not overwrite it. |
 | Checkout changed but lock write failed | Inspect the checkout and lockfile before retrying. |
 | `checkout differs from lockfile` warning | Run `amber_restore`. It refuses dirty checkouts. |
+| Plugin reports `unbuilt` | The build has not run for the locked commit. Run `amber_build` (or fix the failing step), then `rex config reload`. |
 
 ## Contributing
 

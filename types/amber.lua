@@ -8,6 +8,22 @@
 ---@field path? string Absolute path to an externally managed checkout.
 ---@field main? string Lua module name; defaults to the repository name.
 ---@field version? string Git ref or supported semver constraint.
+---@field build? string|(string|fun(ctx: AmberBuildContext): any)[]|fun(ctx: AmberBuildContext): any|false Command, function, or list run after install or update; see the README.
+
+---@class AmberPluginContext Second argument of a plugin's setup function.
+---@field name string Plugin identity, `owner/repo` or `owner/repo@subdir`.
+---@field dir string Checkout directory.
+---@field module_dir string Directory the module tree resolves from; differs from dir for subdir plugins.
+---@field commit? string Commit recorded in the lockfile, if any.
+---@field data_dir? string Per-plugin state directory under `$XDG_STATE_HOME/rex/amber`; Amber does not create it.
+
+---@class AmberBuildContext
+---@field name string
+---@field dir string
+---@field module_dir string
+---@field data_dir? string Per-plugin state directory; Amber does not create it.
+---@field commit string Locked commit being built; the checkout is verified to match it.
+---@field exec fun(argv: string[], opts?: RexExecOptions): RexExecResult?, string? Runs a command in module_dir within the remaining action budget; opts.env extends the AMBER_PLUGIN_* variables.
 
 ---@class AmberConfig
 ---@field root? string Absolute directory for managed checkouts.
@@ -17,6 +33,7 @@
 
 ---@class AmberPlugin
 ---@field name string
+---@field slug string Relative install path: `owner/repo`, plus `--subdir` for subdir plugins.
 ---@field url string
 ---@field dir string
 ---@field subdir? string
@@ -27,6 +44,8 @@
 ---@field local_path boolean
 ---@field enabled boolean
 ---@field version? string
+---@field build? (string|fun(ctx: AmberBuildContext): any)[]
+---@field data_dir? string Per-plugin state directory, set by setup.
 ---@field load_status? string
 ---@field load_error? string
 
