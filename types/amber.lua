@@ -29,6 +29,7 @@
 ---@field root? string Absolute directory for managed checkouts.
 ---@field install? "manual" Installation is always manual.
 ---@field lockfile? string Absolute lockfile path; defaults to amber-lock.json in the Rex config directory.
+---@field cli? string Absolute path to the Amber CLI; defaults to <Amber directory>/bin/amber.
 ---@field plugins? (string|AmberPluginSpec)[] Plugins in load order.
 
 ---@class AmberPlugin

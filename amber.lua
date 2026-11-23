@@ -9,6 +9,7 @@ local directory = source:match("^@?(.*/)") or "./"
 local util = assert(loadfile(directory .. "amber/util.lua"))()
 local parse = assert(loadfile(directory .. "amber/spec.lua"))()
 local git = assert(loadfile(directory .. "amber/git.lua"))(util)
+local cli_path_default = directory .. "bin/amber"
 local loader = assert(loadfile(directory .. "amber/loader.lua"))(util)
 local lock = assert(loadfile(directory .. "amber/lock.lua"))(util)
 local build = assert(loadfile(directory .. "amber/build.lua"))(util)
@@ -40,6 +41,12 @@ function M.setup(config)
     or (config_home and config_home .. "/rex/amber-lock.json")
   if type(lockfile) ~= "string" or lockfile:sub(1, 1) ~= "/" or lockfile:sub(-1) == "/" then
     rex.log("error", "amber: lockfile must be an absolute file path")
+    return
+  end
+
+  local cli_path = config.cli or cli_path_default
+  if type(cli_path) ~= "string" or cli_path:sub(1, 1) ~= "/" then
+    rex.log("error", "amber: cli must be an absolute path")
     return
   end
 
@@ -76,102 +83,180 @@ function M.setup(config)
     end
   end
 
-  -- Runs the Git operation and records the checkout inside one lockfile
-  -- transaction, then runs any pending build outside it so a slow or killed
-  -- build never leaves the lockfile guard behind. A second transaction records
-  -- the build only if the lock entry still points at the commit that was built.
-  local function manage(plugin, deadline, operation)
-    local pending
+  local function build_plugin(plugin, deadline)
+    if plugin.local_path then
+      return nil, "local plugins are managed outside amber"
+    end
+    if not plugin.enabled then
+      return nil, "plugin is disabled"
+    end
+    if not util.exists(plugin.dir .. "/.git/HEAD") then
+      return nil, "not installed"
+    end
+    if not plugin.build then
+      return "no build step"
+    end
     local result, err = lock.transaction(lockfile, function(data)
       local entry = data.plugins[plugin.name]
-      if operation == "restore" and not entry then
-        return nil, "no lockfile entry for " .. plugin.name
+      if not entry then
+        return nil, "no lockfile entry; run amber_install"
       end
-      local status, op_err
-      if operation == "build" then
-        if plugin.local_path then
-          return nil, "local plugins are managed outside amber"
-        end
-        if not util.exists(plugin.dir .. "/.git/HEAD") then
-          return nil, "not installed"
-        end
-        if not plugin.build then
-          return "no build step"
-        end
-        if not entry then
-          return nil, "no lockfile entry; run amber_install"
-        end
-        status = "built"
-      elseif operation == "install" then
-        status, op_err = git.install(plugin, deadline, entry and entry.commit)
-      elseif operation == "restore" then
-        status, op_err = git.restore(plugin, deadline, entry.commit)
-      else
-        status, op_err = git.update(plugin, deadline)
-      end
-      if not status then
-        return nil, op_err
-      end
-      local changed = false
-      if operation == "update" or (operation == "install" and not entry) then
-        local hash, hash_err = git.commit(plugin, deadline)
-        if not hash then
-          return nil, "checkout succeeded but lockfile was not updated: " .. tostring(hash_err)
-        end
-        -- A new commit invalidates the recorded build; an unchanged one keeps it.
-        local kept = entry and entry.commit == hash and entry.built or nil
-        entry = { commit = hash, version = plugin.version, built = kept }
-        data.plugins[plugin.name] = entry
-        changed = true
-      end
-      -- The build always targets the locked commit, never whatever HEAD is.
-      if plugin.build and entry and (operation == "build" or entry.built ~= entry.commit) then
-        pending = entry.commit
-      end
-      return status, nil, changed
+      return entry.commit
     end)
-    if not result or not pending then
-      return result, err
+    if not result then
+      return nil, err
     end
-
-    -- The checkout and lock entry are already recorded, so a failure below
-    -- leaves the plugin unbuilt and amber_build can retry.
     local head, head_err = git.commit(plugin, deadline)
     if not head then
-      return nil, "cannot read checkout commit for build: " .. tostring(head_err)
+      return nil, head_err
     end
-    if head ~= pending then
+    if head ~= result then
       return nil, "checkout differs from lockfile; run amber_restore before building"
     end
-    local built, build_err = build.run(plugin, pending, deadline)
-    if not built then
+    local ok, build_err = build.run(plugin, result, deadline)
+    if not ok then
       return nil, build_err
     end
-    local recorded, record_err = lock.transaction(lockfile, function(data)
+    local saved, save_err = lock.transaction(lockfile, function(data)
       local entry = data.plugins[plugin.name]
-      if not entry or entry.commit ~= pending then
-        return nil, "lockfile changed during the build; run amber_build again"
+      if not entry or entry.commit ~= result then
+        return nil, "lockfile changed during the build; run amber_lua_build again"
       end
-      entry.built = pending
-      return result, nil, true
+      entry.built = result
+      return true, nil, true
     end)
-    if not recorded then
-      return nil, "build succeeded but lockfile was not updated: " .. tostring(record_err)
+    if not saved then
+      return nil, save_err
     end
-    return result
+    return "built"
   end
-  register_action("amber_install", "Install Rex Plugins", function(plugin, deadline)
-    return manage(plugin, deadline, "install")
-  end, by_name, plugins, true)
-  register_action("amber_update", "Update Rex Plugins", function(plugin, deadline)
-    return manage(plugin, deadline, "update")
-  end, by_name, plugins, true)
-  register_action("amber_restore", "Restore Rex Plugins", function(plugin, deadline)
-    return manage(plugin, deadline, "restore")
-  end, by_name, plugins, true)
-  register_action("amber_build", "Build Rex Plugins", function(plugin, deadline)
-    return manage(plugin, deadline, "build")
-  end, by_name, plugins, true)
+  local function cli_action(action, subcommand, optional)
+    rex.action({
+      name = action,
+      title = action,
+      category = "Plugins",
+      args = optional and { plugin = "string?" } or nil,
+      run = function(ctx, args)
+        local plugin = args and args.plugin
+        if plugin then
+          local entry = by_name[plugin]
+          if not entry then
+            error("unknown plugin: " .. plugin, 0)
+          end
+          if not entry.enabled then
+            error(plugin .. ": plugin is disabled", 0)
+          end
+          if entry.local_path then
+            error("local plugins are managed outside amber", 0)
+          end
+        end
+        if not util.exists(cli_path) then
+          error(
+            "Amber CLI not found at "
+              .. cli_path
+              .. "; build it with `mise run cli:build` or reinstall Amber",
+            0
+          )
+        end
+        if not ctx.session_id then
+          local terminal_command = cli_path .. (subcommand ~= "" and " " .. subcommand or "")
+          error(
+            "no Rex session to open Amber in; run `"
+              .. terminal_command
+              .. "` in a terminal instead",
+            0
+          )
+        end
+        local argv = { cli_path, subcommand }
+        if plugin then
+          argv[#argv + 1] = plugin
+        end
+        if action == "amber" then
+          argv = { cli_path }
+        end
+        local layer = rex.session.new_layer({
+          bounds = { 0.125, 0.125, 0.75, 0.75 },
+          focus = true,
+          layout = rex.layout.block({
+            flavor = "com.superlogical.terminal.shell",
+            options = { command = argv, shell = "none" },
+          }),
+        })
+        return { opened = layer.layer_id }
+      end,
+    })
+  end
+  cli_action("amber", "", false)
+  cli_action("amber_install", "install", true)
+  cli_action("amber_update", "update", true)
+  cli_action("amber_restore", "restore", true)
+  cli_action("amber_build", "build", true)
+  cli_action("amber_outdated", "outdated", false)
+  cli_action("amber_clean", "clean", false)
+  rex.action({
+    name = "amber_lua_build",
+    title = "Build Lua Plugin Steps",
+    category = "Plugins",
+    args = { plugin = "string" },
+    run = function(_, args)
+      local plugin = by_name[args.plugin]
+      if not plugin then
+        error("unknown plugin: " .. args.plugin, 0)
+      end
+      if not plugin.enabled then
+        error(plugin.name .. ": plugin is disabled", 0)
+      end
+      local status, err = build_plugin(plugin, os.time() + 23)
+      if not status then
+        error(plugin.name .. ": " .. tostring(err), 0)
+      end
+      return { plugin = plugin.name, status = status }
+    end,
+  })
+  rex.action({
+    name = "amber_info",
+    title = "Amber Configuration",
+    category = "Plugins",
+    run = function()
+      local lock_data, lock_error = lock.read(lockfile)
+      local info = {
+        version = M.version,
+        dir = directory:gsub("/$", ""),
+        root = root,
+        lockfile = lockfile,
+        state_root = state_root,
+        plugins = {},
+      }
+      for _, plugin in ipairs(plugins) do
+        local row = {
+          name = plugin.name,
+          slug = plugin.slug,
+          url = plugin.url,
+          dir = plugin.dir,
+          module_dir = plugin.module_dir,
+          parent = plugin.parent,
+          subdir = plugin.subdir,
+          main = plugin.main,
+          version = plugin.version,
+          enabled = plugin.enabled,
+          local_path = plugin.local_path,
+          data_dir = plugin.data_dir,
+          build = {},
+          load_status = plugin.load_status or (plugin.enabled and "not loaded" or "disabled"),
+          load_error = plugin.load_error,
+        }
+        for _, step in ipairs(plugin.build or {}) do
+          row.build[#row.build + 1] = type(step) == "string" and { type = "shell", command = step }
+            or { type = "lua" }
+        end
+        info.plugins[#info.plugins + 1] = row
+      end
+      if not lock_data then
+        info.lock_error = lock_error
+      end
+      return info
+    end,
+  })
   rex.action({
     name = "amber_status",
     title = "Rex Plugin Status",

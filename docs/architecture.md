@@ -1,6 +1,6 @@
 # Architecture
 
-Amber is a Lua 5.1 module loaded by the Rex server's configuration. It turns plugin declarations into local paths, loads their Rex-side Lua entry points, and registers actions for installing, updating, restoring, and inspecting GitHub repositories. The entry point is `amber.lua`; `amber/spec.lua` validates specs, `amber/git.lua` handles Git operations, `amber/lock.lua` manages the lockfile, `amber/loader.lua` registers actions and loads plugins, `amber/build.lua` runs build steps, and `amber/util.lua` contains shared command and filesystem helpers.
+Amber is a Lua 5.1 module loaded by the Rex server configuration. It validates plugin specifications, loads plugin Lua modules, reads lock state, reports status, and runs builds containing Lua-function steps. The local Go CLI performs install, update, restore, shell builds, and clean operations. The entry point is `amber.lua`; `amber/spec.lua` normalizes specs, `amber/lock.lua` reads/writes lock data for Lua builds, `amber/loader.lua` loads modules, `amber/build.lua` runs build steps, and `amber/util.lua` contains command and filesystem helpers.
 
 ## Execution model
 
@@ -8,90 +8,41 @@ Amber is a Lua 5.1 module loaded by the Rex server's configuration. It turns plu
 Rex config load / check / reload
   └─ amber.setup(config)
        ├─ validate and normalize plugin specifications
-       ├─ register amber_install, amber_update, amber_restore, amber_build, and amber_status actions
+       ├─ register CLI pane actions, amber_info, amber_lua_build, amber_status
        └─ load enabled entry points, in declaration order
-            └─ require(main).setup(opts, ctx)
 
-Later: rex do amber_install [plugin=owner/repo]
-       rex do amber_update  [plugin=owner/repo]
-       rex do amber_restore [plugin=owner/repo]
-       rex do amber_build   [plugin=owner/repo]
-       rex do amber_status
-  └─ Rex invokes the corresponding registered action
-       └─ Amber runs Git and filesystem commands via rex.exec
+Rex action (amber_install/update/restore/build/outdated/clean/amber)
+  └─ open centered floating pane running <Amber dir>/bin/amber <command>
+       └─ local Go CLI manages Git and lockfile changes
+
+amber_info -> normalized Lua configuration and load state
+amber_lua_build -> server-side build steps and lock recording
 ```
 
-Configuration loading never installs or updates checkouts. Rex also executes the configuration during `rex config check`, so plugin setup code runs during checks. Plugins installed or updated through actions take effect on the next `rex config reload`.
+Configuration loading never installs or updates checkouts. Rex also executes configuration during `rex config check`, so plugin setup code runs during checks. Plugins installed or updated through the CLI take effect on the next `rex config reload`.
 
-Rex configuration runs on the server machine. Amber, local plugin paths, Git, and installed checkouts must therefore be available there, not merely on the client. Plugins execute as Lua code with the server user's privileges; Amber is not a sandbox.
+## Configuration and loading
 
-## Configuration and normalized plugins
+`setup` accepts `root`, `lockfile`, `cli`, and an ordered `plugins` list. Specs may declare `opts`, `enabled`, `path`, `main`, `version`, `subdir`, and `build`; see the README for the public spec contract. Amber validates names and paths, logs and skips invalid specifications and duplicate identities/module names/install locations, and derives GitHub HTTPS URLs. Managed checkouts live under `<root>/<owner>/<repo>` or a sanitized subdir-specific location. Local paths are externally managed.
 
-`setup` accepts `root`, `lockfile`, and an ordered `plugins` list. `install` may be omitted or `"manual"`; any other value is logged as an error and setup stops. Each element is either an `owner/repo` string or a table whose first element is that name. A table can also specify:
+For each enabled plugin, Amber resolves modules from `rex/lua` when present, otherwise `lua`, within its checkout or subdirectory. It registers a scoped searcher and calls `require(main).setup(opts, ctx)`. Disabled plugins are not loaded. Missing modules and setup failures are recorded for `amber_status` and `amber_info`.
 
-| Field | Purpose |
-| --- | --- |
-| `opts` | Table passed to the plugin's `setup`; defaults to an empty table. |
-| `enabled` | Defaults to true. False skips loading and rejects install/update actions. |
-| `path` | Absolute path to an externally managed local checkout. |
-| `main` | Lua module name; defaults to the repository name. |
-| `version` | Git ref or supported semver constraint for managed checkouts; incompatible with `path`. |
-| `subdir` | Repository subdirectory the plugin loads from; requires `main`, which stops defaulting to the repository name. |
-| `build` | Shell command, function, or list of them run after install or update; rejected with `path`. `false` disables it. |
+At load, Amber reads the lockfile and warns about checkout drift, version mismatch, and unbuilt plugins. It does not write the lockfile for Git operations; the CLI owns Git and lockfile changes. `amber_status` reads lock data and local Git metadata without fetching.
 
-All plugins, including local ones, have a unique identity. Plain specs keep the `owner/repo` identity; `subdir` specs identify as `owner/repo@subdir`, which keys the lockfile, status, and per-plugin action targets, and cannot collide with a plain name. Amber validates names, module names, and subdir paths, logs and skips invalid specifications, duplicate identities, enabled duplicate main module names, and duplicate install locations across all non-local specs, enabled or disabled (including a sanitized subdir install name that collides with a plain repository), and derives a GitHub HTTPS URL for each repository. For managed plugins, the default root is `$XDG_DATA_HOME/rex/plugins` or `~/.local/share/rex/plugins`; plain checkouts live at `<root>/<owner>/<repo>`, and a subdir plugin clones to `<root>/<owner>/<repo>--<subdir with / mapped to ->`; both stay one path segment. `root` overrides that location. A local `path` bypasses this layout and is never installed or updated by Amber.
+## CLI actions
 
-Amber keeps both an ordered list for loading and a name-indexed table for action lookup. These are built anew each time `setup` runs. Plugin modules must return a table containing `setup(opts, ctx)`; `ctx` carries `name`, `dir`, `module_dir`, the locked `commit`, and a `data_dir` that Amber names but does not create, and a plugin may ignore it; version and author fields in that module are not required. `version` in the manager's specification controls the checkout, not plugin metadata.
+User-facing Rex actions open the CLI in a floating Rex layer. The default binary is `<Amber directory>/bin/amber`; `cli` can override it with an absolute path. Targeted actions validate the requested plugin and reject unknown, disabled, or local plugins. A live Rex session is required; otherwise the error directs the user to run the CLI in a terminal.
 
-## Loading and errors
-
-For every enabled plugin, Amber chooses the module tree inside `plugin.dir` — inside the subdirectory for a `subdir` plugin (`<dir>/<subdir>`) — preferring `rex/lua` when present, otherwise `lua`, never falling back to the checkout root. It checks for the main module there, registers a searcher scoped to the main module namespace, and invokes `require(main).setup(opts)` inside `pcall`. A missing subdirectory in an existing checkout produces a `missing` load status with an error naming the subdir; a checkout that does not exist yet keeps the missing-module warning, so an uninstalled spec does not error on every config load. The searcher's namespace scope is the only isolation between plugins. It never falls back to `lua` when `rex/lua` exists. A missing module produces a warning; a load or setup failure is logged as an error, and Amber continues to the next plugin. Lua's global module cache and namespace are shared, so unrelated module-name collisions remain possible. Disabled plugins do not load or produce missing-entry warnings. Configuration validation errors, such as duplicate names or an invalid version, are logged and the offending spec is skipped.
-
-Loading checks the module file and warns when a versioned managed checkout differs from its locally resolved version. Changing a version declaration does not switch an existing checkout until an update action is run; comparison does not fetch from the remote. Plugins register their Rex actions and bindings during config load; their own action callbacks run later.
-
-## Installation and updates
-
-The install action accepts an optional `plugin` name; without one it processes enabled managed plugins sequentially and returns per-plugin results. The update and restore actions also accept optional names and process all enabled managed plugins when omitted. Named actions reject unknown, disabled, and externally managed plugins. Actions share a 23-second budget for Git operations, leaving time before Rex's 30-second action deadline for cleanup. Exhausted or timed-out operations return an error; retry or target plugins individually. Actions return a reminder to reload; command failures, including failures in bulk installs, become action errors.
-
-For installation, Amber:
-
-1. Treats a checkout containing `.git/HEAD` as already installed; refuses an existing destination that is not such a checkout.
-2. Creates the owner directory and a unique temporary sibling directory.
-3. Runs `git clone` into that directory, then optionally checks out the requested version.
-4. Moves the completed clone into its final location without intentionally replacing an existing destination.
-
-Failed clones and checkouts trigger temporary-directory cleanup. A sibling lock directory serializes Amber installs of the same plugin. An interruption can leave a `.amber-*` directory or `.amber-lock` directory behind; inspect and remove stale locks manually. The implementation relies on the platform's `mktemp`, `mv`, and `rm` commands; its temporary-directory move is not a general-purpose transactional package store.
-
-For updates, an unversioned checkout uses `git pull --ff-only`. A versioned checkout fetches tags and checks out the selected ref in detached HEAD state. Git reports conflicts or other failures; Amber does not reset working-tree changes. For an unversioned detached checkout, Amber requires a clean worktree, fetches the origin default branch, and only advances when the current commit is its ancestor.
-
-`rex.exec` receives an argument vector rather than a shell command. Amber checks both process startup errors and exit status; network Git operations set `GIT_TERMINAL_PROMPT=0`. Individual Git operations have a 20-second timeout, but Rex actions also have their own deadline, so a multi-command operation can still be interrupted by Rex.
+The CLI runs on the local machine and owns install, update, restore, shell build, clean, and lockfile writes. `amber_info` supplies normalized configuration to the CLI. `amber_lua_build` is reserved for build declarations containing Lua functions: it checks the locked commit, runs all build steps under the action budget, and records `built` in a second lock transaction.
 
 ## Build steps
 
-A managed plugin may declare `build`, normalized by `amber/spec.lua` into a list of steps. `manage` in `amber.lua` works in three phases. First, one lockfile transaction runs the Git operation of `amber_install`, `amber_update`, or `amber_restore` (none for `amber_build`), writes the lock entry, and notes a pending build when the entry's `built` differs from its `commit`, or always for `amber_build`. `amber_build` requires an existing lock entry. Second, with the lockfile guard released, it checks that `HEAD` equals the locked commit and runs the steps through `amber/build.lua`; a drifted checkout is refused with a pointer to `amber_restore`. Third, a second transaction sets `built` to the commit, but only if the entry still locks that commit; otherwise the action fails and the build must be repeated.
+Build declarations normalize to ordered shell-command and Lua-function steps. The CLI runs shell-only builds locally. When a declaration contains Lua-function steps, it invokes `amber_lua_build` so the Rex server can execute the function steps; all steps run in order. The Lua action requires an installed managed checkout and lock entry, verifies that HEAD equals the locked commit, and records the successful build only if the lock entry remains unchanged. Config loading gates plugin setup until the locked commit has been built. Builds are trusted code running with the relevant machine's privileges.
 
-String steps run as `sh -c` in `module_dir` through `rex.exec` with `AMBER_PLUGIN_NAME`, `AMBER_PLUGIN_DIR`, `AMBER_PLUGIN_MODULE_DIR`, and `AMBER_PLUGIN_DATA_DIR`; function steps get a context whose `exec` applies the remaining action budget and merges caller variables over those. The first failing step stops the build. Running builds outside the transaction keeps a slow or interrupted build from leaving the `.lock` guard behind.
+## Lockfile and versions
 
-A failed build leaves the recorded checkout in place with `built` unset, so `amber_build` can retry. An update to a different commit drops `built`; an update that lands on the same commit keeps it. Build output inside the checkout must be ignored by Git, since restore and detached updates refuse untracked files.
-
-At config load, an enabled plugin with a build step whose checkout exists and whose lock entry lacks `built == commit` is not set up: its load status is `unbuilt` and a warning is logged. If the lockfile cannot be read, this check is skipped. Config load never runs a build. Builds are trusted code and share the 23-second action budget with Git, so long-running work must be started by the plugin itself.
-
-## Version resolution
-
-Without `version`, Git's default branch is used. Exact tags take precedence over remote branch names, and branch names resolve to `origin/<branch>`. `amber_status` compares the checked-out commit with the locally resolved version without fetching. `^x.y.z` and `~x.y.z` select the highest matching stable `x.y.z` or `vx.y.z` tag among locally available tags, applying caret or tilde bounds. Updates fetch tags before resolving again. Prerelease tags and broader lazy.nvim semver expressions are not supported. The lockfile pins resolved commits across installs; a range can resolve to a newer tag on an explicit update.
-
-## Lockfile
-
-The default `amber-lock.json` is next to Rex's configuration, with an absolute-path override in `setup`. It stores a format version and a map of plugin identities to exact Git commits, their declared version, and, for plugins with a build step, the commit last built (`built`). Configuration loads only read it. Manual install uses an existing lock entry or records the resulting checkout when no entry exists; update replaces the entry after a successful checkout. Restore uses locked commits and refuses dirty working trees. Local and disabled plugins are skipped in bulk operations, and unrelated lock entries are retained.
-
-Operations serialize lockfile read-modify-write with a sibling `.lock` directory. Writes use a unique temporary sibling and rename. A crash can leave the guard behind; operators must verify no action is running before removing it. A failed lock write after Git changed a checkout leaves that checkout changed and returns an error; the filesystem and Git update are not a single transaction. Restore checks out detached commits, and can fail if a locked commit is no longer available.
+The lockfile records exact commits, declared versions, and the last built commit for plugins with build steps. Lua reads the lockfile at setup and status time. CLI commands perform installation, update, restore, and lockfile writes. Local plugins are never managed. Lock read failures are surfaced in `amber_info` and `amber_status`; config loading does not repair malformed files.
 
 ## Development and verification
 
-`mise.toml` pins Lua 5.1, StyLua, Lua Language Server, ShellCheck, shfmt, Lefthook, and typos. `mise run check` runs formatting checks (StyLua, shfmt), ShellCheck, the tests (`scripts/test.sh` and `scripts/test-install.sh`), Lua Language Server diagnostics, and Lua syntax validation with `luac`; `scripts/test.sh` creates a temporary fixture for `tests/test.lua`. Tests stub Rex APIs and Git responses, so they do not prove live Git operations or Rex pane behavior. The README documents setup and task commands.
-
-## Subdirectory plugins
-
-A spec can name a repository subdirectory it loads from. Identity carries the subdirectory (`owner/repo@subdir`) and becomes the lockfile key, the status key, and the per-plugin action target. Managed installs clone the whole repository into `<root>/<owner>/<repo>--<sanitized subdir>`, where `--` separates the repository from the subdirectory and `/` and other symbols map to `-`; two entries of one repository therefore track different commits. Modules resolve from the subdirectory's own `rex/lua` or `lua/` tree, so each entry is self-contained. `main` is required for subdir specs. Local `path` checkouts combine with `subdir` as a module offset. Duplicate install locations are reported at setup for every non-local spec, enabled or disabled, so a disabled checkout cannot satisfy an enabled plugin.
-
-Current non-goals include dependency resolution, lazy loading, uninstall, service or daemon management, arbitrary remote URLs, and Windows support. These are not implied by the current module contract.
+`mise run check` runs formatting, shell lint, Lua tests, Go checks, Lua diagnostics, and syntax validation. Tests stub Rex and Git; they do not prove live Rex pane behavior or network Git operations.
