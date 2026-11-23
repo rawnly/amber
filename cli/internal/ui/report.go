@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"io"
 	"strings"
 
@@ -15,7 +14,7 @@ import (
 // PrintList prints a table of plugins and their local state.
 func PrintList(w io.Writer, info *amber.Info, states map[string]engine.State) {
 	if len(info.Plugins) == 0 {
-		fmt.Fprintln(w, styleDim.Render("No plugins declared."))
+		lipgloss.Fprintln(w, styleDim.Render("No plugins declared."))
 		return
 	}
 	rows := make([][]string, 0, len(info.Plugins))
@@ -37,13 +36,14 @@ func PrintList(w io.Writer, info *amber.Info, states map[string]engine.State) {
 		if p.Managed() && r.state.Installed {
 			note = attention(r)
 		}
-		if note == "" && p.LoadError != "" {
+		if note == "" && p.LoadError != "" && (p.LocalPath || r.state.Installed) {
 			note = firstLine(p.LoadError)
 		}
 		rows = append(rows, []string{icon + " " + p.Name, status, commit, ref, note})
 	}
 	t := table.New().
-		Border(lipgloss.HiddenBorder()).
+		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false).
+		BorderColumn(false).BorderHeader(false).BorderRow(false).
 		Headers("PLUGIN", "STATUS", "COMMIT", "VERSION", "NOTE").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
@@ -61,8 +61,8 @@ func PrintList(w io.Writer, info *amber.Info, states map[string]engine.State) {
 			}
 			return s
 		})
-	fmt.Fprintln(w, t.Render())
-	fmt.Fprintln(w, styleFaint.Render(" root "+info.Root+"   lockfile "+info.Lockfile))
+	lipgloss.Fprintln(w, t.Render())
+	lipgloss.Fprintln(w, styleFaint.Render(" root "+info.Root+"   lockfile "+info.Lockfile))
 }
 
 func listStatus(r *row) (string, string) {
@@ -97,7 +97,7 @@ type CheckResult struct {
 
 // PrintChecks prints doctor findings grouped under a heading.
 func PrintChecks(w io.Writer, heading string, checks []CheckResult) {
-	fmt.Fprintln(w, styleSection.Render(heading))
+	lipgloss.Fprintln(w, styleSection.Render(heading))
 	for _, c := range checks {
 		icon := styleOK.Render("✓")
 		switch c.Level {
@@ -106,14 +106,14 @@ func PrintChecks(w io.Writer, heading string, checks []CheckResult) {
 		case CheckFail:
 			icon = styleErr.Render(iconFailed)
 		}
-		fmt.Fprintf(w, "  %s %s\n", icon, c.Title)
+		lipgloss.Fprintf(w, "  %s %s\n", icon, c.Title)
 		if c.Detail != "" {
 			for _, l := range strings.Split(c.Detail, "\n") {
-				fmt.Fprintf(w, "    %s\n", styleDim.Render(l))
+				lipgloss.Fprintf(w, "    %s\n", styleDim.Render(l))
 			}
 		}
 	}
-	fmt.Fprintln(w)
+	lipgloss.Fprintln(w)
 }
 
 // PluginChecks turns local plugin state into doctor findings.

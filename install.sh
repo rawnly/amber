@@ -88,11 +88,66 @@ if ! GIT_TERMINAL_PROMPT=0 git clone -- "$repo" "$install_dir"; then
   exit 1
 fi
 
+# Downloads the CLI for this platform from the latest release, verifies its
+# checksum, and moves the library checkout to the matching tag. Returns
+# nonzero without touching bin/ when anything is missing.
+install_cli() {
+  case $(uname -s) in
+  Darwin) os=darwin ;;
+  Linux) os=linux ;;
+  *) return 1 ;;
+  esac
+  case $(uname -m) in
+  x86_64 | amd64) arch=amd64 ;;
+  arm64 | aarch64) arch=arm64 ;;
+  *) return 1 ;;
+  esac
+  command -v curl >/dev/null 2>&1 || return 1
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha() { sha256sum "$1" | cut -d ' ' -f 1; }
+  elif command -v shasum >/dev/null 2>&1; then
+    sha() { shasum -a 256 "$1" | cut -d ' ' -f 1; }
+  else
+    return 1
+  fi
+  base=${AMBER_RELEASE_URL:-https://github.com/rawnly/amber/releases/latest/download}
+  name=amber-$os-$arch
+  mkdir -p "$install_dir/bin"
+  download="$install_dir/bin/.amber-download"
+  sums="$install_dir/bin/.amber-checksums"
+  if ! curl -fsL "$base/$name" -o "$download" || ! curl -fsL "$base/checksums.txt" -o "$sums"; then
+    rm -f "$download" "$sums"
+    return 1
+  fi
+  expected=$(awk -v n="$name" '$2 == n || $2 == "*" n { print $1 }' "$sums")
+  actual=$(sha "$download")
+  rm -f "$sums"
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    rm -f "$download"
+    printf 'Error: checksum mismatch for %s.\n' "$name" >&2
+    return 1
+  fi
+  chmod 755 "$download"
+  mv "$download" "$install_dir/bin/amber"
+  version=$("$install_dir/bin/amber" --version 2>/dev/null | awk '{ print $NF }')
+  case $version in
+  v[0-9]*) git -C "$install_dir" checkout --quiet --detach "$version" -- 2>/dev/null ||
+    printf 'Warning: could not check out %s; run amber self-update.\n' "$version" >&2 ;;
+  esac
+}
+
+if install_cli; then
+  cli_note="The amber command is at $install_dir/bin/amber; add $install_dir/bin to your PATH."
+else
+  cli_note="No prebuilt amber command for this machine; build it with mise run cli:build in $install_dir."
+fi
+
 printf '\nAmber installed at %s\n' "$install_dir"
 printf '%s\n' 'Add Amber to your Rex config and declare your plugins:'
 printf '  %s/amber.lua\n' "$install_dir"
 printf '%s\n' 'See https://github.com/rawnly/amber#installation for the configuration example.'
 printf '%s\n' 'The installer does not modify your Rex config or install plugins.'
+printf '%s\n' "$cli_note"
 
 old_dir=${RPM_INSTALL_DIR:-"$HOME/.local/share/rex/rpm"}
 if [ -e "$old_dir/rex_plugin_manager.lua" ]; then

@@ -37,7 +37,7 @@ Register actions and bindings during setup; defer operations that require a live
 
 ## Build steps and background processes
 
-If the plugin needs work after checkout, document a `build` option for the Amber spec (a shell command, a function, or a list; see the README) rather than an install script. It runs on install and update within Amber's action budget, so keep it short. Amber holds back `setup` until it has succeeded. Put build output in `.gitignore` or under `data_dir` (`AMBER_PLUGIN_DATA_DIR` for shell steps): untracked files make `amber_restore` and `amber_update` refuse the checkout.
+If the plugin needs work after checkout, document a `build` option for the Amber spec (a shell command, a function, or a list; see the README) rather than an install script. It runs on install and update; shell steps run in the `amber` command, while a build with any Lua function step runs inside a Rex action with a roughly 23-second budget, so prefer shell steps for slow work. Amber holds back `setup` until it has succeeded. Put build output in `.gitignore` or under `data_dir` (`AMBER_PLUGIN_DATA_DIR` for shell steps): untracked files make `amber restore` and `amber update` refuse the checkout.
 
 Amber has no service management and does not know where the `rex` binary is. For a long-running watcher, check the current Rex Lua reference, start it from `setup` with a detached `rex.exec.start`, resolve its script path from `ctx.dir`, keep state in `ctx.data_dir`, and make it exit when another instance is already running, because `setup` runs on every config load and check. State what you verified against a live Rex.
 
@@ -53,7 +53,7 @@ amber.setup({
 })
 ```
 
-For development, add `path = "/absolute/path/to/example-rex"` to that spec. Local paths are server-side and externally managed; Amber does not install or update them, and `version` cannot be combined with `path`. Managed repositories must be published to GitHub before a fresh install can fetch them. Amber never installs during config load or `rex config check`: after loading the config, run `rex do amber_install`, then `rex config reload`. Installs record exact commits in `amber-lock.json` and honor existing lock entries; `amber_update` advances them and `amber_restore` restores them. Changes made through these actions take effect on config reload. Do not promise dependency resolution, lazy loading, or other features Amber does not provide.
+For development, add `path = "/absolute/path/to/example-rex"` to that spec. Local paths are server-side and externally managed; Amber does not install or update them, and `version` cannot be combined with `path`. Managed repositories must be published to GitHub before a fresh install can fetch them. Amber never installs during config load or `rex config check`: after loading the config, run `amber install` (it reloads the Rex config when done). Installs record exact commits in `amber-lock.json` and honor existing lock entries; `amber update` advances them and `amber restore` restores them. The `amber_*` Rex actions open the same command in a floating pane. Do not promise dependency resolution, lazy loading, or other features Amber does not provide.
 
 ## Verify
 

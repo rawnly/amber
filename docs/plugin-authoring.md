@@ -111,9 +111,9 @@ If the plugin needs work after checkout, such as compiling a helper, document a 
 
 A build can be a shell command, a list of commands, or a function; the [README](../README.md#build-steps) has the full rules. For authors, the important ones:
 
-- It runs on install and on update when the locked commit changed, within Amber's roughly 23-second action budget shared with Git. Keep it short.
+- It runs on install and on update when the locked commit changed. Shell steps run in the `amber` command, up to 30 minutes each; a build with a Lua function step runs entirely inside a Rex action, within a roughly 23-second budget. Prefer shell steps for anything slow.
 - Shell steps run in `module_dir` with `AMBER_PLUGIN_NAME`, `AMBER_PLUGIN_DIR`, `AMBER_PLUGIN_MODULE_DIR`, and `AMBER_PLUGIN_DATA_DIR` set.
-- Keep output out of Git's way: list generated files in `.gitignore` or write them to the data directory. `amber_update` and `amber_restore` refuse checkouts with untracked or modified files.
+- Keep output out of Git's way: list generated files in `.gitignore` or write them to the data directory. `amber update` and `amber restore` refuse checkouts with untracked or modified files.
 - `setup` is not called until the build has succeeded for the locked commit.
 
 ## Background processes
@@ -140,9 +140,10 @@ amber.setup({
 Then tell them to install explicitly, since config load never installs:
 
 ```sh
-rex do amber_install plugin=alice/example-rex
-rex config reload
+amber install alice/example-rex
 ```
+
+`amber install` reloads the Rex config when it is done, so the plugin loads right away.
 
 Document your options and defaults, the actions you register, and any key bindings users must add themselves. Do not promise features Amber lacks, such as dependency resolution or lazy loading. If you tag releases as `vX.Y.Z` or `X.Y.Z`, users can pin with `version = "^1.2.0"`.
 
@@ -158,7 +159,7 @@ Local `path` plugins are never installed, updated, locked, or built; run any bui
 
 - Unit-test the entry point, submodule resolution, option defaults and overrides, and repeated `setup` calls with stubbed Rex APIs. Stubs cannot prove live Rex behavior.
 - When Rex is available, run `rex config check` against a temporary configuration that uses the absolute local path, so your real config is not touched.
-- Use `rex do amber_status` to see load status and errors; failures also go to the Rex log.
+- Use `amber ls` or `amber doctor` to see load status and errors; failures also go to the Rex log.
 
 ## Agent skill
 

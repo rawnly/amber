@@ -517,7 +517,7 @@ func (m *model) summary(op Op) string {
 			counts["failed"]++
 		case op == OpCheck && r.check != nil && r.check.Outdated:
 			counts["outdated"]++
-		case r.result != nil && r.result.Status != engine.StatusSkipped && r.result.Status != engine.StatusUpToDate:
+		case op != OpCheck && r.result != nil && r.result.Status != engine.StatusSkipped && r.result.Status != engine.StatusUpToDate:
 			counts[string(r.result.Status)]++
 		}
 	}

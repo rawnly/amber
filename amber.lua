@@ -99,7 +99,7 @@ function M.setup(config)
     local result, err = lock.transaction(lockfile, function(data)
       local entry = data.plugins[plugin.name]
       if not entry then
-        return nil, "no lockfile entry; run amber_install"
+        return nil, "no lockfile entry; run amber install"
       end
       return entry.commit
     end)
@@ -111,7 +111,7 @@ function M.setup(config)
       return nil, head_err
     end
     if head ~= result then
-      return nil, "checkout differs from lockfile; run amber_restore before building"
+      return nil, "checkout differs from lockfile; run amber restore before building"
     end
     local ok, build_err = build.run(plugin, result, deadline)
     if not ok then
@@ -120,7 +120,7 @@ function M.setup(config)
     local saved, save_err = lock.transaction(lockfile, function(data)
       local entry = data.plugins[plugin.name]
       if not entry or entry.commit ~= result then
-        return nil, "lockfile changed during the build; run amber_lua_build again"
+        return nil, "lockfile changed during the build; run amber build again"
       end
       entry.built = result
       return true, nil, true
@@ -130,10 +130,10 @@ function M.setup(config)
     end
     return "built"
   end
-  local function cli_action(action, subcommand, optional)
+  local function cli_action(action, title, subcommand, optional)
     rex.action({
       name = action,
-      title = action,
+      title = title,
       category = "Plugins",
       args = optional and { plugin = "string?" } or nil,
       run = function(ctx, args)
@@ -186,13 +186,13 @@ function M.setup(config)
       end,
     })
   end
-  cli_action("amber", "", false)
-  cli_action("amber_install", "install", true)
-  cli_action("amber_update", "update", true)
-  cli_action("amber_restore", "restore", true)
-  cli_action("amber_build", "build", true)
-  cli_action("amber_outdated", "outdated", false)
-  cli_action("amber_clean", "clean", false)
+  cli_action("amber", "Amber: Open", "", false)
+  cli_action("amber_install", "Amber: Install Plugins", "install", true)
+  cli_action("amber_update", "Amber: Update Plugins", "update", true)
+  cli_action("amber_restore", "Amber: Restore Lockfile Commits", "restore", true)
+  cli_action("amber_build", "Amber: Build Plugins", "build", true)
+  cli_action("amber_outdated", "Amber: Check for Updates", "outdated", false)
+  cli_action("amber_clean", "Amber: Clean", "clean", false)
   rex.action({
     name = "amber_lua_build",
     title = "Build Lua Plugin Steps",
@@ -325,7 +325,7 @@ function M.setup(config)
           "warn",
           "amber: "
             .. plugin.name
-            .. ": version spec changed; lock remains authoritative until amber_update"
+            .. ": version spec changed; lock remains authoritative until amber update"
         )
       end
       if util.exists(plugin.dir .. "/.git/HEAD") then
@@ -333,7 +333,7 @@ function M.setup(config)
         if head and head ~= locked.commit then
           rex.log(
             "warn",
-            "amber: " .. plugin.name .. ": checkout differs from lockfile; run amber_restore"
+            "amber: " .. plugin.name .. ": checkout differs from lockfile; run amber restore"
           )
         elseif err then
           rex.log("warn", "amber: " .. plugin.name .. ": cannot check lockfile: " .. err)
@@ -354,7 +354,7 @@ function M.setup(config)
             .. plugin.name
             .. ": checkout does not match version "
             .. plugin.version
-            .. "; run amber_update"
+            .. "; run amber update"
         )
       elseif err then
         rex.log("warn", "amber: " .. plugin.name .. ": cannot check version: " .. err)
@@ -377,7 +377,7 @@ function M.setup(config)
       and not (locked and locked.built == locked.commit)
     then
       plugin.load_status = "unbuilt"
-      plugin.load_error = "build has not run for the locked commit; run amber_build"
+      plugin.load_error = "build has not run for the locked commit; run amber build"
       rex.log("warn", "amber: " .. plugin.name .. ": " .. plugin.load_error)
     else
       load_plugin(plugin, context)

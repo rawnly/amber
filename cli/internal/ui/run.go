@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/rawnly/amber/cli/internal/amber"
 	"github.com/rawnly/amber/cli/internal/engine"
@@ -43,7 +44,7 @@ func RunPlain(ctx context.Context, w io.Writer, s *Session, op Op, target string
 		return err
 	}
 	if len(plugins) == 0 {
-		fmt.Fprintf(w, "%s nothing to %s\n", styleDim.Render("·"), op)
+		lipgloss.Fprintf(w, "%s nothing to %s\n", styleDim.Render("·"), op)
 		return nil
 	}
 	if parallel <= 0 {
@@ -87,7 +88,7 @@ func RunPlain(ctx context.Context, w io.Writer, s *Session, op Op, target string
 				mu.Unlock()
 			}
 			mu.Lock()
-			fmt.Fprintf(w, "%s  %s\n", styleName.Render(fmt.Sprintf("%-*s", nameWidth, p.Name)), line)
+			lipgloss.Fprintf(w, "%s  %s\n", styleName.Render(fmt.Sprintf("%-*s", nameWidth, p.Name)), line)
 			mu.Unlock()
 		}(p)
 	}
@@ -96,12 +97,12 @@ func RunPlain(ctx context.Context, w io.Writer, s *Session, op Op, target string
 	if changed && reload && s.Reload != nil {
 		diags, err := s.Reload(ctx)
 		if err != nil {
-			fmt.Fprintln(w, styleErr.Render(iconFailed+" Rex reload failed: "+err.Error()))
+			lipgloss.Fprintln(w, styleErr.Render(iconFailed+" Rex reload failed: "+err.Error()))
 			failed++
 		} else {
-			fmt.Fprintln(w, styleOK.Render(iconUpdated+" Reloaded Rex config"))
+			lipgloss.Fprintln(w, styleOK.Render(iconUpdated+" Reloaded Rex config"))
 			for _, d := range diags {
-				fmt.Fprintf(w, "  %s %s %s\n", styleWarn.Render(d.Severity), styleDim.Render(d.Source), d.Message)
+				lipgloss.Fprintf(w, "  %s %s %s\n", styleWarn.Render(d.Severity), styleDim.Render(d.Source), d.Message)
 			}
 		}
 	}
