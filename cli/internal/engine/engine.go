@@ -141,18 +141,18 @@ func New(info *amber.Info, rex amber.Actions) *Engine {
 // install, update, or restore when the lock entry's built commit differs from
 // its commit; always for OpBuild.
 func (e *Engine) Run(ctx context.Context, op Op, p *amber.Plugin, emit Emit) (Result, error) {
-	panic("engine.Run: not implemented")
+	return e.run(ctx, op, p, emit)
 }
 
 // Check fetches from origin (no checkout, no lockfile change) and reports
 // whether an update would move the plugin.
 func (e *Engine) Check(ctx context.Context, p *amber.Plugin, emit Emit) (Check, error) {
-	panic("engine.Check: not implemented")
+	return e.check(ctx, p, emit)
 }
 
 // State reads local state without touching the network.
 func (e *Engine) State(ctx context.Context, p *amber.Plugin) State {
-	panic("engine.State: not implemented")
+	return e.state(ctx, p)
 }
 
 // CleanPlan lists what Clean would remove. Lock entries for undeclared
@@ -160,10 +160,10 @@ func (e *Engine) State(ctx context.Context, p *amber.Plugin) State {
 // declared plugin's checkout, local plugins, or anything outside Root and
 // the lockfile's directory.
 func (e *Engine) CleanPlan(ctx context.Context, withLockEntries bool) ([]CleanItem, error) {
-	panic("engine.CleanPlan: not implemented")
+	return e.cleanPlan(withLockEntries)
 }
 
 // Clean removes items, re-checking each one just before removal.
 func (e *Engine) Clean(ctx context.Context, items []CleanItem) error {
-	panic("engine.Clean: not implemented")
+	return e.clean(items)
 }
