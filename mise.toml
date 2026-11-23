@@ -6,6 +6,7 @@ shellcheck = "latest"
 shfmt = "latest"
 lefthook = "latest"
 typos = "latest"
+go = "1.27.3"
 
 [tasks.test]
 description = "Run Lua 5.1 tests"
@@ -13,7 +14,7 @@ run = ["sh scripts/test.sh", "sh scripts/test-install.sh"]
 
 [tasks.fmt]
 description = "Format Lua and shell files"
-run = ["stylua amber.lua amber tests types", "shfmt -i 2 -w install.sh scripts/*.sh"]
+run = ["stylua amber.lua amber tests types", "shfmt -i 2 -w install.sh scripts/*.sh", "gofmt -w cli"]
 
 [tasks."fmt:check"]
 description = "Check Lua and shell formatting"
@@ -27,7 +28,22 @@ run = "shellcheck -s sh install.sh scripts/*.sh"
 description = "Run Lua Language Server diagnostics"
 run = "lua-language-server --check . --checklevel Warning --check_format pretty"
 
+[tasks."cli:build"]
+description = "Build the Amber CLI into bin/amber"
+dir = "cli"
+run = "go build -o ../bin/amber ./cmd/amber"
+
+[tasks."cli:test"]
+description = "Vet and test the Amber CLI"
+dir = "cli"
+run = ["go vet ./...", "go test ./..."]
+
+[tasks."cli:fmt:check"]
+description = "Check Go formatting"
+dir = "cli"
+run = "test -z \"$(gofmt -l .)\" || { gofmt -l .; exit 1; }"
+
 [tasks.check]
 description = "Check formatting, lint, types, Lua syntax, and tests"
-depends = ["fmt:check", "lint", "test", "types"]
+depends = ["fmt:check", "cli:fmt:check", "lint", "test", "cli:test", "types"]
 run = "luac -p amber.lua amber/*.lua tests/test.lua types/*.lua"
