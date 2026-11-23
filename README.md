@@ -110,7 +110,7 @@ Some plugins need work after checkout, such as compiling a helper. Declare it wi
 - A failed build still records the checkout in the lockfile, fails the action, and leaves the plugin unbuilt. Fix the cause and run `amber_build`.
 - Keep build output out of Git's way. `amber_restore` and `amber_update` refuse checkouts with untracked or modified files, so list generated files in the plugin's `.gitignore` or write them to `data_dir`.
 - Until a build has run for the locked commit, Amber does not call the plugin's `setup`; `amber_status` reports `unbuilt`. Adding `build` to an existing plugin therefore needs one `amber_build` and a reload. If the lockfile cannot be read, Amber cannot tell and does not hold plugins back.
-- Steps share the roughly 23-second action budget with Git, and a bulk action shares it across all plugins. Anything longer fails with a timeout; build slow plugins one at a time with `plugin=owner/repo`, or start long-running work from the plugin itself (see [Background processes](#background-processes)).
+- Steps share the roughly 23-second action budget with Git, and a bulk action shares it across all plugins. Anything longer fails with a timeout; build slow plugins one at a time with `plugin=owner/repo`, or start long-running work from the plugin itself (see [Background processes](docs/plugin-authoring.md#background-processes)).
 - The build runs after the lockfile is released, so other Amber actions are not blocked by it. If the lock entry changes while it runs, the result is not recorded and `amber_build` must run again.
 - Build commands are trusted code with the Rex server's privileges, like plugin Lua. Read them before installing.
 
@@ -162,7 +162,7 @@ Config load only reads the lockfile to warn about drift. A malformed lockfile ma
 
 ## Writing a plugin
 
-Amber looks for the module in `rex/lua/` if that directory exists, otherwise `lua/`. It never falls back to `lua/` when `rex/lua/` exists. The module must return a table with `setup(opts)`. `setup` runs on every config load, so register actions and bindings there.
+A plugin is a GitHub repository with a Lua module in `rex/lua/` (or `lua/` when `rex/lua/` does not exist) that returns a table with `setup(opts, ctx)`. `setup` runs on every config load, reload, and config check, so register actions and bindings there.
 
 `lua/example/init.lua`:
 
@@ -182,29 +182,7 @@ end
 return M
 ```
 
-- Pick a unique module name. The Lua module namespace and `package.loaded` are shared.
-- `setup` also receives a second argument, `ctx`, so a plugin does not need paths filled in at install time:
-
-  | Field | Meaning |
-  | --- | --- |
-  | `ctx.name` | Plugin identity, `owner/repo` or `owner/repo@subdir`. |
-  | `ctx.dir` | Checkout directory. |
-  | `ctx.module_dir` | Directory the module tree resolves from; differs from `dir` for `subdir` plugins. |
-  | `ctx.commit` | Commit recorded in the lockfile, or `nil`. |
-  | `ctx.data_dir` | State directory `$XDG_STATE_HOME/rex/amber/<owner>/<repo>` (default `~/.local/state`). Amber names it but never creates it. |
-
-  Plugins that ignore `ctx` keep working. Amber does not tell a plugin where the `rex` binary is.
-- Plugins are trusted Lua code with the Rex server's privileges. They are not sandboxed.
-- Config checks run `setup` too. Avoid side effects beyond configuration.
-
-### Background processes
-
-Amber manages files, not processes: it has no service support and does not write launchd or systemd units. A plugin that needs a long-running watcher should start it itself from `setup`, using paths from `ctx` instead of values substituted at install time. Details to check against the current [Rex Lua reference](https://www.superlogical.com/rex/docs/reference/lua), because Amber's tests stub Rex and do not exercise them:
-
-- `rex.on` and `rex.every` are documented as script-only, so the watcher is a Lua script run with `rex do`, not code in `setup`.
-- `rex.exec.start` with `detach = true` starts a process that outlives the config load.
-- `setup` runs on every config load, reload, and `rex config check`. Make the script exit when another instance is already running (for example by labeling its client connection and checking for the label), and consider whether a check should start it at all.
-- Amber does not stop such a process on update or removal; the plugin should handle restarts itself.
+See [docs/plugin-authoring.md](docs/plugin-authoring.md) for module layout and naming, the `ctx` fields, build steps, background processes, and local development. Plugins are trusted Lua code with the Rex server's privileges; they are not sandboxed.
 
 Install the [authoring skill](.agents/skills/rex-plugin-authoring/SKILL.md) for your agent:
 
@@ -258,6 +236,8 @@ Unverified: not yet tested in an editor. Add a `.luarc.json` to your Rex config 
 ```
 
 Annotate the result of `dofile` with `---@type AmberModule`. `types/rex.lua` covers only the Rex API Amber uses.
+
+Plugin authors: to type the `ctx` argument of `setup` as `AmberPluginContext`, see [Editor types](docs/plugin-authoring.md#editor-types).
 
 ## Migrating from RPM
 
