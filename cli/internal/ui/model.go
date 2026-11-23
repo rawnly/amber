@@ -267,6 +267,8 @@ func eligible(op Op, r *row) bool {
 		return len(r.p.Build) > 0 && r.state.Installed
 	case OpUpdate, OpCheck:
 		return r.state.Installed
+	case OpRestore:
+		return r.state.Locked != ""
 	}
 	return true
 }
