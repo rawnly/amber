@@ -4,6 +4,7 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 fixture=$(mktemp -d)
+mkdir -p "$fixture"
 trap 'rm -rf "$fixture"' EXIT HUP INT TERM
 mkdir -p "$fixture/alice/example/.git" "$fixture/alice/example/lua/example" "$fixture/carol/shared/.git" "$fixture/carol/shared/rex/lua/shared" "$fixture/carol/shared/lua/shared" "$fixture/bob" "$fixture/temporary/.git" "$fixture/temporary/lua/new" "$fixture/locked/.git" "$fixture/locked/lua/pinned" \
   "$fixture/elly/utility--panes-tools/.git" "$fixture/elly/utility--panes-tools/panes/tools/lua/tools" \

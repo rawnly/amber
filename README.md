@@ -45,17 +45,20 @@ The first reload registers Amber's actions. The second loads the installed plugi
 
 ## Commands
 
-Run with `rex do <action>`. Add `plugin=owner/repo` to target one plugin. Without it, an action covers all enabled, managed plugins, one after another. Reload after install, update, or restore.
+The user-facing actions open a centered floating pane running the Amber CLI; install/update/restore/build accept an optional `plugin=owner/repo`. Build the CLI with `mise run cli:build` if it is missing. `amber_status` remains a Rex action. `amber_info` and `amber_lua_build` are internal actions used by the CLI.
 
 | Action | What it does |
 | --- | --- |
-| `amber_install` | Clones missing plugins. Uses the locked commit if one exists. Records new commits in the lockfile. |
-| `amber_update` | Resolves the newest commit or version, checks it out, rewrites the lock entry. Unversioned: `git pull --ff-only`. Versioned: fetch tags, check out detached. Never resets local changes. |
-| `amber_restore` | Checks out the locked commit (detached). Refuses dirty checkouts. Fails if the commit is unavailable. |
-| `amber_build` | Runs the `build` step of plugins that declare one, even if it already ran for the locked commit. |
-| `amber_status` | Shows load status, errors, path, commit, lock match, build state, and version match. Does not fetch. |
+| `amber` | Opens the CLI home UI. |
+| `amber_install` | Opens the CLI install view. |
+| `amber_update` | Opens the CLI update view. |
+| `amber_restore` | Opens the CLI restore view. |
+| `amber_build` | Opens the CLI build view. |
+| `amber_outdated` | Opens the CLI outdated view. |
+| `amber_clean` | Opens the CLI clean view. |
+| `amber_status` | Shows load status and plugin state. Does not fetch. |
 
-`amber_status` takes no `plugin` argument. Load failures also go to `rex.log`; see [Rex logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs).
+`amber_status` takes no `plugin` argument. CLI pane actions require an active Rex session. Load failures also go to `rex.log`; see [Rex logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs).
 
 ## Plugin spec
 
@@ -76,6 +79,7 @@ Options for `amber.setup` itself:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `root` | `$XDG_DATA_HOME/rex/plugins`, else `~/.local/share/rex/plugins` | Absolute install directory. Plugins go in `<root>/<owner>/<repo>`. No `~` expansion. |
+| `cli` | `<Amber directory>/bin/amber` | Absolute path to the Amber CLI binary. |
 | `lockfile` | `amber-lock.json` next to `$REX_CONFIG`, else `$XDG_CONFIG_HOME/rex/amber-lock.json`, else `~/.config/rex/amber-lock.json` | Absolute file path on the server. |
 | `plugins` | `{}` | Ordered list of specs. Plugins load in this order. |
 
@@ -159,6 +163,10 @@ rex config reload
 ```
 
 Config load only reads the lockfile to warn about drift. A malformed lockfile makes actions fail; Amber never overwrites it.
+
+## CLI
+
+The CLI is documented separately.
 
 ## Writing a plugin
 
