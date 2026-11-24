@@ -191,7 +191,11 @@ func runDoctor(ctx context.Context, g *globals) error {
 	case Version == "dev" || info.Version == "":
 		add(&env, ui.CheckOK, lib, "")
 	case strings.TrimPrefix(Version, "v") != strings.TrimPrefix(info.Version, "v"):
-		add(&env, ui.CheckWarn, lib, fmt.Sprintf("this CLI is %s; run: amber self-update", Version))
+		fix := "amber self-update"
+		if exe, err := executablePath(); err == nil && isHomebrewPath(exe) {
+			fix = "brew upgrade " + brewFormula
+		}
+		add(&env, ui.CheckWarn, lib, fmt.Sprintf("this CLI is %s; run: %s", Version, fix))
 	default:
 		add(&env, ui.CheckOK, lib, "")
 	}

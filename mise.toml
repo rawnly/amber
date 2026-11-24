@@ -10,7 +10,7 @@ go = "1.27.3"
 
 [tasks.test]
 description = "Run Lua 5.1 tests"
-run = ["sh scripts/test.sh", "sh scripts/test-install.sh"]
+run = ["sh scripts/test.sh", "sh scripts/test-install.sh", "sh scripts/test-formula.sh"]
 
 [tasks.fmt]
 description = "Format Lua and shell files"

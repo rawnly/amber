@@ -59,7 +59,33 @@ func (r release) asset(name string) string {
 	return ""
 }
 
+// brewFormula is the formula that installs Amber with Homebrew.
+const brewFormula = "amber-rex"
+
+// executablePath is the running binary with symlinks resolved.
+func executablePath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(exe)
+}
+
+// isHomebrewPath reports whether exe lives in a Homebrew Cellar, where the
+// binary and the library are managed by `brew` and are not a Git checkout.
+func isHomebrewPath(exe string) bool {
+	sep := string(filepath.Separator)
+	return strings.Contains(exe, sep+"Cellar"+sep)
+}
+
 func selfUpdate(ctx context.Context, g *globals, dir string, checkOnly bool) error {
+	exe, err := executablePath()
+	if err != nil {
+		return err
+	}
+	if isHomebrewPath(exe) {
+		return fmt.Errorf("amber was installed with Homebrew; update it with: brew upgrade %s", brewFormula)
+	}
 	rel, err := latestRelease(ctx)
 	if err != nil {
 		return err
@@ -74,13 +100,6 @@ func selfUpdate(ctx context.Context, g *globals, dir string, checkOnly bool) err
 		return nil
 	}
 
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
-		return err
-	}
 	if dir == "" {
 		dir = filepath.Dir(filepath.Dir(exe))
 	}
