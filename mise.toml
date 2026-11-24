@@ -12,6 +12,15 @@ go = "1.27.3"
 description = "Run Lua 5.1 tests"
 run = ["sh scripts/test.sh", "sh scripts/test-install.sh", "sh scripts/test-formula.sh"]
 
+[tasks.e2e]
+description = "End-to-end test with a scratch Rex server and local Git origins; touches nothing of yours"
+depends = ["cli:build"]
+run = "sh scripts/e2e.sh"
+
+[tasks."brew:local"]
+description = "Install the Homebrew formula from HEAD through a throwaway tap (pass --fetch-only to skip the install)"
+run = "sh scripts/brew-local.sh"
+
 [tasks.fmt]
 description = "Format Lua and shell files"
 run = ["stylua amber.lua amber tests types", "shfmt -i 2 -w install.sh scripts/*.sh", "gofmt -w cli"]
