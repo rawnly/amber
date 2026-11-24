@@ -28,18 +28,9 @@ jobs:
       - name: Run checks
         run: mise run check
       - name: Build binaries
-        working-directory: cli
+        run: mise run cli:dist
         env:
-          CGO_ENABLED: "0"
-        run: |
-          mkdir -p ../dist
-          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
-            os=${target%/*} arch=${target#*/}
-            GOOS=$os GOARCH=$arch mise exec -- go build -trimpath \
-              -ldflags "-s -w -X github.com/rawnly/amber/cli/internal/cli.Version=$GITHUB_REF_NAME" \
-              -o "../dist/amber-$os-$arch" ./cmd/amber
-          done
-          cd ../dist && sha256sum amber-* >checksums.txt
+          VERSION: ${{ github.ref_name }}
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

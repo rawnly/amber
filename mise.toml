@@ -33,6 +33,33 @@ description = "Build the Amber CLI into bin/amber"
 dir = "cli"
 run = "go build -o ../bin/amber ./cmd/amber"
 
+[tasks."cli:go"]
+description = "Run any go command inside cli/, e.g. mise run cli:go -- mod tidy"
+dir = "cli"
+run = "go"
+
+[tasks."cli:run"]
+description = "Run the CLI from source, e.g. mise run cli:run -- ls --plain"
+dir = "cli"
+run = "go run ./cmd/amber"
+
+[tasks."cli:dist"]
+description = "Cross-build release binaries and checksums into dist/ (VERSION=v0.1.0 mise run cli:dist)"
+dir = "cli"
+env = { CGO_ENABLED = "0" }
+run = """
+version="${VERSION:-dev}"
+rm -rf ../dist && mkdir -p ../dist
+for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+  os=${target%/*} arch=${target#*/}
+  GOOS=$os GOARCH=$arch go build -trimpath \
+    -ldflags "-s -w -X github.com/rawnly/amber/cli/internal/cli.Version=$version" \
+    -o "../dist/amber-$os-$arch" ./cmd/amber
+done
+cd ../dist
+if command -v sha256sum >/dev/null 2>&1; then sha256sum amber-* >checksums.txt; else shasum -a 256 amber-* >checksums.txt; fi
+"""
+
 [tasks."cli:test"]
 description = "Vet and test the Amber CLI"
 dir = "cli"
