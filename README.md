@@ -214,6 +214,14 @@ amber self-update            # or --check to only look
 
 This downloads the latest release of the `amber` command, verifies its checksum, replaces the binary, checks out the matching release tag in the library directory (the parent of `bin/`, or `--dir`), and reloads Rex. The command and the library are released together and must match; `amber doctor` warns when they differ. It only moves to a newer release, refuses a command built from source (version `dev`), and refuses a library checkout with local changes or on a branch other than `main`, so a development clone is never moved.
 
+### Upgrading from 0.0.x
+
+0.0.x had no `amber` command: the `amber_*` actions ran Git inside Rex. In 0.1.0 those actions open `<Amber directory>/bin/amber` in a floating pane, so a checkout updated with `git pull` has no command and the actions fail with "Amber CLI not found". Your plugin specs and `amber-lock.json` carry over unchanged.
+
+- Get the command: install with Homebrew, or download the installer and run `AMBER_INSTALL_DIR=/new/path sh install.sh` (it refuses an existing directory), then point your `dofile` at the new path. To keep the old checkout, run `mise run cli:build` in it instead.
+- Replace `rex do amber_install` (and update, restore, build) in scripts with `amber install` and the rest. The actions now need a Rex session, and they return `{ opened = <layer id> }` instead of the per-plugin results.
+- Drop the `rex config reload` after these commands: `amber` reloads for you.
+
 ## Writing a plugin
 
 A plugin is a GitHub repository with a Lua module in `rex/lua/` (or `lua/` when `rex/lua/` does not exist) that returns a table with `setup(opts, ctx)`. `setup` runs on every config load, reload, and config check, so register actions and bindings there.
