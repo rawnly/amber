@@ -2,8 +2,8 @@
 class AmberRex < Formula
   desc "Plugin manager for Rex"
   homepage "https://github.com/rawnly/amber"
-  url "https://github.com/rawnly/amber/releases/download/v0.1.0/amber-0.1.0.tar.gz"
-  sha256 "b5262d17c41af284cc46d1de3c99caf4a1a3b1581e2c241a7b25a3835636f9bc"
+  url "https://github.com/rawnly/amber/releases/download/v0.1.1/amber-0.1.1.tar.gz"
+  sha256 "c027cd088e5fa6162b938fc43018184bf42db85737aa9e01004ae90f927c7b3f"
   license "Apache-2.0"
   head "https://github.com/rawnly/amber.git", branch: "main"
 
