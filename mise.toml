@@ -6,14 +6,24 @@ shellcheck = "latest"
 shfmt = "latest"
 lefthook = "latest"
 typos = "latest"
+go = "1.27.3"
 
 [tasks.test]
 description = "Run Lua 5.1 tests"
-run = ["sh scripts/test.sh", "sh scripts/test-install.sh"]
+run = ["sh scripts/test.sh", "sh scripts/test-install.sh", "sh scripts/test-formula.sh"]
+
+[tasks.e2e]
+description = "End-to-end test with a scratch Rex server and local Git origins; touches nothing of yours"
+depends = ["cli:build"]
+run = "sh scripts/e2e.sh"
+
+[tasks."brew:local"]
+description = "Install the Homebrew formula from HEAD through a throwaway tap (pass --fetch-only to skip the install)"
+run = "sh scripts/brew-local.sh"
 
 [tasks.fmt]
 description = "Format Lua and shell files"
-run = ["stylua amber.lua amber tests types", "shfmt -i 2 -w install.sh scripts/*.sh"]
+run = ["stylua amber.lua amber tests types", "shfmt -i 2 -w install.sh scripts/*.sh", "gofmt -w cli"]
 
 [tasks."fmt:check"]
 description = "Check Lua and shell formatting"
@@ -27,7 +37,49 @@ run = "shellcheck -s sh install.sh scripts/*.sh"
 description = "Run Lua Language Server diagnostics"
 run = "lua-language-server --check . --checklevel Warning --check_format pretty"
 
+[tasks."cli:build"]
+description = "Build the Amber CLI into bin/amber"
+dir = "cli"
+run = "go build -o ../bin/amber ./cmd/amber"
+
+[tasks."cli:go"]
+description = "Run any go command inside cli/, e.g. mise run cli:go -- mod tidy"
+dir = "cli"
+run = "go"
+
+[tasks."cli:run"]
+description = "Run the CLI from source, e.g. mise run cli:run -- ls --plain"
+dir = "cli"
+run = "go run ./cmd/amber"
+
+[tasks."cli:dist"]
+description = "Cross-build release binaries and checksums into dist/ (VERSION=v0.1.0 mise run cli:dist)"
+dir = "cli"
+env = { CGO_ENABLED = "0" }
+run = """
+version="${VERSION:-dev}"
+rm -rf ../dist && mkdir -p ../dist
+for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+  os=${target%/*} arch=${target#*/}
+  GOOS=$os GOARCH=$arch go build -trimpath \
+    -ldflags "-s -w -X github.com/rawnly/amber/cli/internal/cli.Version=$version" \
+    -o "../dist/amber-$os-$arch" ./cmd/amber
+done
+cd ../dist
+if command -v sha256sum >/dev/null 2>&1; then sha256sum amber-* >checksums.txt; else shasum -a 256 amber-* >checksums.txt; fi
+"""
+
+[tasks."cli:test"]
+description = "Vet and test the Amber CLI"
+dir = "cli"
+run = ["go vet ./...", "go test ./..."]
+
+[tasks."cli:fmt:check"]
+description = "Check Go formatting"
+dir = "cli"
+run = "test -z \"$(gofmt -l .)\" || { gofmt -l .; exit 1; }"
+
 [tasks.check]
 description = "Check formatting, lint, types, Lua syntax, and tests"
-depends = ["fmt:check", "lint", "test", "types"]
+depends = ["fmt:check", "cli:fmt:check", "lint", "test", "cli:test", "types"]
 run = "luac -p amber.lua amber/*.lua tests/test.lua types/*.lua"

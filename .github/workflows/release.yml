@@ -1,0 +1,85 @@
+name: Release
+
+# Pushing a vX.Y.Z tag publishes the CLI for every supported platform. The
+# Lua library is the tagged commit itself; install.sh and `amber self-update`
+# check it out next to the matching binary.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      # mise builds Lua 5.1 from source, which links -lreadline (same as ci.yml).
+      - name: Install Lua build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libreadline-dev
+      - name: Install tools
+        uses: jdx/mise-action@v5
+      - name: Check that the library version matches the tag
+        run: |
+          version=$(sed -n 's/^local M = { version = "\(.*\)" }$/\1/p' amber.lua)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "amber.lua says $version but the tag is $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+      - name: Run checks
+        run: mise run check
+      - name: Build binaries
+        run: mise run cli:dist
+        env:
+          VERSION: ${{ github.ref_name }}
+      - name: Create source archive
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          git archive --format=tar.gz --prefix="amber-$version/" -o "dist/amber-$version.tar.gz" "$GITHUB_REF_NAME"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+
+  # The Homebrew formula lives in this repository (tap with
+  # `brew tap rawnly/amber https://github.com/rawnly/amber`). It points at the
+  # source archive attached above, so its checksum is that of the uploaded
+  # file, not of a GitHub-generated archive.
+  formula:
+    name: Update Homebrew formula
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Generate formula
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          version=${TAG#v}
+          curl -fsSL --retry 5 --retry-all-errors \
+            "https://github.com/$REPO/releases/download/$TAG/amber-$version.tar.gz" -o "$RUNNER_TEMP/source.tar.gz"
+          sha=$(sha256sum "$RUNNER_TEMP/source.tar.gz" | cut -d ' ' -f 1)
+          mkdir -p Formula
+          sh scripts/formula.sh "$version" "$sha" >Formula/amber-rex.rb
+      - name: Commit formula
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/amber-rex.rb
+          if git diff --cached --quiet; then
+            echo "formula is already up to date"
+            exit 0
+          fi
+          git commit -m "chore: update Homebrew formula to $TAG"
+          git push origin HEAD:main || {
+            git pull --rebase origin main
+            git push origin HEAD:main
+          }

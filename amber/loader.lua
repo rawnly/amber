@@ -31,59 +31,6 @@ end
 
 table.insert(package.loaders, 2, plugin_searcher)
 
----@param name string
----@param title string
----@param operation fun(plugin: AmberPlugin, deadline?: number): string?, string?
----@param plugins table<string, AmberPlugin>
----@param ordered AmberPlugin[]
----@param all? boolean
-local function register_action(name, title, operation, plugins, ordered, all)
-  rex.action({
-    name = name,
-    title = title,
-    category = "Plugins",
-    args = { plugin = all and "string?" or "string" },
-    run = function(_, args)
-      local deadline = os.time() + 23
-      if all and not args.plugin then
-        local results = {}
-        local failed = false
-        for _, plugin in ipairs(ordered) do
-          if plugin.enabled and not plugin.local_path then
-            local status, err = operation(plugin, deadline)
-            results[plugin.name] = { status = status or "failed", error = err }
-            if not status then
-              failed = true
-            end
-          end
-        end
-        if failed then
-          local errors = {}
-          for plugin_name, result in pairs(results) do
-            if result.error then
-              errors[#errors + 1] = plugin_name .. ": " .. result.error
-            end
-          end
-          error("plugin operation failed: " .. table.concat(errors, "; "), 0)
-        end
-        return { plugins = results, reload = "rex config reload" }
-      end
-      local plugin = plugins[args.plugin]
-      if not plugin then
-        error("unknown plugin: " .. args.plugin, 0)
-      end
-      if not plugin.enabled then
-        error(plugin.name .. ": plugin is disabled", 0)
-      end
-      local status, err = operation(plugin, deadline)
-      if not status then
-        error(plugin.name .. ": " .. err, 0)
-      end
-      return { plugin = plugin.name, status = status, reload = "rex config reload" }
-    end,
-  })
-end
-
 ---@param plugin AmberPlugin
 ---@param context? AmberPluginContext
 local function load_plugin(plugin, context)
@@ -140,4 +87,4 @@ local function load_plugin(plugin, context)
   end
 end
 
-return { register_action = register_action, load_plugin = load_plugin }
+return { load_plugin = load_plugin }

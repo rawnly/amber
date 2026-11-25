@@ -12,6 +12,14 @@ local function test(name, fn)
   local saved_lock
   ---@type table<string, any>
   local behavior = { tags = "v1.2.0\nv1.4.0\nv2.0.0\n", mismatch = false }
+  -- Seeds the lockfile the way the CLI would have written it.
+  behavior.seed = function(plugins)
+    local file = assert(io.open(lock_path, "w"))
+    file:write("seeded")
+    file:close()
+    saved_lock = { format = 1, plugins = plugins }
+    behavior.lock_data = saved_lock
+  end
   package.path = root .. "/?.lua;" .. original_path
   for i = #package.loaders, 1, -1 do
     package.loaders[i] = nil
@@ -39,6 +47,17 @@ local function test(name, fn)
     action = function(action)
       actions[action.name] = action
     end,
+    layout = {
+      block = function(spec)
+        return { block = spec }
+      end,
+    },
+    session = {
+      new_layer = function(args)
+        behavior.layer = args
+        return { layer_id = "layer:1", block_ids = { "block:1" } }
+      end,
+    },
     log = function(level, message)
       logs[#logs + 1] = { level, message }
     end,
@@ -132,6 +151,9 @@ local function test(name, fn)
   amber.setup = function(config)
     config = config or {}
     config.lockfile = lock_path
+    if config.cli == nil then
+      config.cli = root .. "/bin-amber"
+    end
     return setup(config)
   end
   local ok, err = pcall(fn, amber, actions, logs, calls, behavior)
@@ -149,6 +171,22 @@ local function called(calls, command, argument)
   end
 end
 
+local function count_calls(calls, command)
+  local total = 0
+  for _, call in ipairs(calls) do
+    if call.argv[1] == command then
+      total = total + 1
+    end
+  end
+  return total
+end
+
+local A, B, C = string.rep("a", 40), string.rep("b", 40), string.rep("c", 40)
+local session = { session_id = "session:1" }
+
+local binary = assert(io.open(root .. "/bin-amber", "w"))
+binary:close()
+
 test("loads installed plugins without shadowing user modules", function(amber, actions, logs, calls)
   amber.setup({
     root = root,
@@ -159,16 +197,6 @@ test("loads installed plugins without shadowing user modules", function(amber, a
   assert(logs[1][2]:match("not found") and not called(calls, "git", "clone"))
   local report = actions.amber_status.run({}, {})
   assert(report["alice/example"].loaded == "loaded" and report["bob/missing"].loaded == "missing")
-  assert(not pcall(actions.amber_install.run, {}, {}))
-end)
-
-test("bulk results are keyed by plugin name, even when empty", function(amber, actions)
-  amber.setup({ root = root, install = "manual", plugins = {} })
-  local result = actions.amber_install.run({}, {})
-  assert(type(result.plugins) == "table" and next(result.plugins) == nil)
-  amber.setup({ root = root, install = "manual", plugins = { "alice/example" } })
-  result = actions.amber_install.run({}, {})
-  assert(result.plugins["alice/example"].status == "already installed")
 end)
 
 test("configuration loading never clones", function(amber, _, _, calls)
@@ -176,14 +204,15 @@ test("configuration loading never clones", function(amber, _, _, calls)
   assert(not called(calls, "git", "clone"))
 end)
 
-test("disabled plugins neither load nor install", function(amber, actions, logs, calls)
+test("disabled plugins neither load nor open the CLI", function(amber, actions, logs, calls)
   amber.setup({
     root = root,
     plugins = { { "alice/example", enabled = false }, { "bob/missing", enabled = false } },
   })
   assert(_G.plugin_message == nil and #logs == 0 and not called(calls, "git", "clone"))
-  assert(not pcall(actions.amber_install.run, {}, { plugin = "alice/example" }))
-  assert(not pcall(actions.amber_update.run, {}, { plugin = "alice/example" }))
+  local ok, err = pcall(actions.amber_install.run, session, { plugin = "alice/example" })
+  assert(not ok and tostring(err):match("disabled"))
+  assert(not pcall(actions.amber_lua_build.run, session, { plugin = "alice/example" }))
 end)
 
 test("loads a local checkout without a cached module", function(amber, actions)
@@ -192,7 +221,8 @@ test("loads a local checkout without a cached module", function(amber, actions)
     plugins = { { "alice/example", path = root .. "/alice/example", opts = { message = "local" } } },
   })
   assert(_G.plugin_message == "local")
-  assert(not pcall(actions.amber_update.run, {}, { plugin = "alice/example" }))
+  local ok, err = pcall(actions.amber_update.run, session, { plugin = "alice/example" })
+  assert(not ok and tostring(err):match("managed outside amber"))
 end)
 
 test("reports invalid and duplicate specifications", function(amber, _, logs)
@@ -222,81 +252,10 @@ test("prefers Rex modules without falling back for submodules", function(amber)
   assert(not pcall(require, "shared.missing"))
 end)
 
-test(
-  "selects compatible versions and warns about drift",
-  function(amber, actions, logs, calls, behavior)
-    behavior.mismatch = true
-    amber.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
-    assert(logs[#logs][2]:match("checkout does not match"))
-    behavior.mismatch = false
-    assert(actions.amber_update.run({}, { plugin = "alice/example" }).status == "updated")
-    local checkout = called(calls, "git", "checkout")
-    assert(checkout and checkout.argv[4] == "v1.4.0")
-  end
-)
-
-test(
-  "installs a missing plugin and publishes its checkout",
-  function(amber, actions, _, calls, behavior)
-    behavior.clone_success = true
-    amber.setup({ root = root, install = "manual", plugins = { { "bob/new", version = "~1.2.0" } } })
-    assert(actions.amber_install.run({}, { plugin = "bob/new" }).status == "installed")
-    local checkout = called(calls, "git", "checkout")
-    assert(checkout and checkout.argv[4] == "v1.2.0")
-    local head = assert(io.open(root .. "/bob/new/.git/HEAD", "r"))
-    head:close()
-  end
-)
-
-test(
-  "installs the locked commit despite a changed version spec",
-  function(amber, actions, _, calls, behavior)
-    amber.setup({ root = root, plugins = { "alice/example", { "bob/pinned", version = "^1.2.0" } } })
-    actions.amber_install.run({}, { plugin = "alice/example" })
-    behavior.lock_data.plugins["bob/pinned"] = { commit = string.rep("b", 40), version = "v1.0.0" }
-    behavior.clone_success, behavior.temp = true, "locked"
-    assert(actions.amber_install.run({}, { plugin = "bob/pinned" }).status == "installed")
-    local checkout = called(calls, "git", "checkout")
-    assert(checkout and checkout.argv[4] == string.rep("b", 40))
-    assert(behavior.lock_data.plugins["bob/pinned"].version == "v1.0.0")
-  end
-)
-
-test("selects caret ranges in major version zero", function(amber, actions, _, calls, behavior)
-  behavior.tags = "v0.2.0\nv0.2.8\nv0.3.0\n"
-  amber.setup({
-    root = root,
-    install = "manual",
-    plugins = { { "alice/example", version = "^0.2.0" } },
-  })
-  actions.amber_update.run({}, { plugin = "alice/example" })
-  local checkout = called(calls, "git", "checkout")
-  assert(checkout and checkout.argv[4] == "v0.2.8")
-end)
-
-test("cleans up after version checkout failure", function(amber, actions, _, calls, behavior)
-  behavior.clone_success, behavior.checkout_failure = true, true
-  amber.setup({
-    root = root,
-    install = "manual",
-    plugins = { { "bob/failed", version = "~1.2.0" } },
-  })
-  local ok, err = pcall(actions.amber_install.run, {}, { plugin = "bob/failed" })
-  assert(not ok and tostring(err):match("checkout failed"))
-  assert(called(calls, "rm", "-rf"))
-end)
-
-test("bulk operations skip local and disabled plugins", function(amber, actions, _, calls)
-  amber.setup({
-    root = root,
-    install = "manual",
-    plugins = {
-      { "alice/example", path = root .. "/alice/example" },
-      { "bob/missing", enabled = false },
-    },
-  })
-  local result = actions.amber_install.run({}, {})
-  assert(next(result.plugins) == nil and not called(calls, "git", "clone"))
+test("warns when a checkout does not match its version", function(amber, _, logs, _, behavior)
+  behavior.mismatch = true
+  amber.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
+  assert(logs[#logs][2]:match("checkout does not match"))
 end)
 
 test("loads a subdir plugin from its own module root", function(amber, actions)
@@ -346,30 +305,6 @@ test("rejects malformed subdir values", function(amber, _, logs)
     )
   end
 end)
-
-test(
-  "installs subdir clones into sanitized locations and keys results by identity",
-  function(amber, actions, _, calls, behavior)
-    behavior.clone_success = true
-    behavior.temp = "temporary2"
-    amber.setup({
-      root = root,
-      install = "manual",
-      plugins = { { "elly/other", subdir = "panes/bells", main = "bells" } },
-    })
-    local result = actions.amber_install.run({}, { plugin = "elly/other@panes/bells" })
-    assert(result.status == "installed", tostring(result))
-    local move
-    for _, call in ipairs(calls) do
-      if call.argv[1] == "mv" and call.argv[2] == "-n" then
-        move = call
-      end
-    end
-    assert(move and move.argv[5] == root .. "/elly/other--panes-bells")
-    local head = assert(io.open(root .. "/elly/other--panes-bells/.git/HEAD", "r"))
-    head:close()
-  end
-)
 
 test("reports duplicate dirs: sanitized collision and plain repo", function(amber, actions, logs)
   -- A plain repository whose name already carries the sanitized suffix
@@ -427,32 +362,6 @@ test("suggests subdir for near-miss option names", function(amber, _, logs)
   assert(logs[1][2]:match("did you mean subdir"))
 end)
 
-test(
-  "a plain repo and a subdir plugin of one repo coexist with separate locks",
-  function(amber, actions, _, calls, behavior)
-    behavior.clone_success = true
-    behavior.temp = "temporary3"
-    amber.setup({
-      root = root,
-      install = "manual",
-      plugins = {
-        { "elly/utility" },
-        { "elly/monorepo", subdir = "panes/tools", main = "tools" },
-      },
-    })
-    assert(actions.amber_install.run({}, { plugin = "elly/utility" }).status == "installed")
-    behavior.temp = "temporary4"
-    assert(
-      actions.amber_install.run({}, { plugin = "elly/monorepo@panes/tools" }).status == "installed"
-    )
-    local report = actions.amber_status.run({}, {})
-    assert(report["elly/utility"] and report["elly/monorepo@panes/tools"])
-    assert(
-      #report["elly/utility"].commit == 40 and #report["elly/monorepo@panes/tools"].commit == 40
-    )
-  end
-)
-
 test("marks a missing subdirectory and names it", function(amber, actions)
   amber.setup({
     root = root,
@@ -496,46 +405,6 @@ test("names a missing subdirectory in an existing checkout", function(amber, act
   assert(row and row.loaded == "missing" and row.error:match("subdir gone not found"))
 end)
 
-test("rejects unknown plugin names for targeted actions", function(amber, actions)
-  amber.setup({ root = root, install = "manual", plugins = { "elly/utility" } })
-  assert(not pcall(actions.amber_install.run, {}, { plugin = "bob/none" }))
-end)
-
-test(
-  "moves two subdirs of one repo to different pinned versions",
-  function(amber, actions, _, calls, behavior)
-    behavior.clone_success = true
-    amber.setup({
-      root = root,
-      install = "manual",
-      plugins = {
-        { "elly/utility", subdir = "panes/tools", main = "tools", version = "^1.2.0" },
-        { "elly/utility", subdir = "panes/bells", main = "bells", version = "~2.0.0" },
-      },
-    })
-    local update = actions.amber_update
-    assert(update.run({}, { plugin = "elly/utility@panes/tools" }).status == "updated")
-    assert(update.run({}, { plugin = "elly/utility@panes/bells" }).status == "updated")
-    local checkouts = {}
-    for _, call in ipairs(calls) do
-      if call.argv[1] == "git" and call.argv[2] == "checkout" then
-        checkouts[#checkouts + 1] = call.argv[4]
-      end
-    end
-    assert(#checkouts == 2, "expected two pinned checkouts")
-    local saw_v14, saw_v20 = false, false
-    for _, ref in ipairs(checkouts) do
-      if ref == "v1.4.0" then
-        saw_v14 = true
-      end
-      if ref == "v2.0.0" then
-        saw_v20 = true
-      end
-    end
-    assert(saw_v14 and saw_v20)
-  end
-)
-
 test("resolves path + subdir inside the local checkout", function(amber)
   amber.setup({
     root = root,
@@ -546,35 +415,9 @@ test("resolves path + subdir inside the local checkout", function(amber)
   assert(_G.subdir_message == "local")
 end)
 
-test("reports clone timeouts and cleans up", function(amber, actions, _, calls, behavior)
-  behavior.clone_timeout = true
-  amber.setup({ root = root, install = "manual", plugins = { "bob/missing" } })
-  local ok, err = pcall(actions.amber_install.run, {}, { plugin = "bob/missing" })
-  assert(not ok and tostring(err):match("timed out"))
-  assert(called(calls, "rm", "-rf"))
-end)
-
-test(
-  "records commits and refuses to restore dirty checkouts",
-  function(amber, actions, _, calls, behavior)
-    amber.setup({ root = root, plugins = { "alice/example" } })
-    assert(
-      actions.amber_install.run({}, { plugin = "alice/example" }).status == "already installed"
-    )
-    behavior.dirty = true
-    local ok, err = pcall(actions.amber_restore.run, {}, { plugin = "alice/example" })
-    assert(not ok and tostring(err):match("working tree is not clean"))
-    assert(not called(calls, "git", "checkout"))
-    behavior.dirty = false
-    assert(actions.amber_restore.run({}, { plugin = "alice/example" }).status == "restored")
-    assert(called(calls, "git", "checkout").argv[4] == string.rep("a", 40))
-  end
-)
-
-test("updates the lock only on an explicit update", function(amber, actions, logs, _, behavior)
-  amber.setup({ root = root, plugins = { "alice/example" } })
-  actions.amber_install.run({}, { plugin = "alice/example" })
-  behavior.head_hash = string.rep("b", 40)
+test("warns about a changed version spec and reports drift", function(amber, actions, logs, _, b)
+  b.seed({ ["alice/example"] = { commit = A } })
+  b.head_hash = B
   amber.setup({ root = root, plugins = { { "alice/example", version = "^1.2.0" } } })
   local found = false
   for _, log in ipairs(logs) do
@@ -583,118 +426,80 @@ test("updates the lock only on an explicit update", function(amber, actions, log
     end
   end
   assert(found)
-  local before = actions.amber_status.run({}, {})["alice/example"]
-  assert(before.locked_commit == string.rep("a", 40) and before.lock_matches == false)
-  actions.amber_update.run({}, { plugin = "alice/example" })
-  local after = actions.amber_status.run({}, {})["alice/example"]
-  assert(after.locked_commit == string.rep("b", 40) and after.lock_matches == true)
+  local row = actions.amber_status.run({}, {})["alice/example"]
+  assert(row.locked_commit == A and row.lock_matches == false)
 end)
 
-test("rejects a corrupt lockfile without overwriting it", function(amber, actions)
+test("reports a corrupt lockfile without overwriting it", function(amber, actions)
   local path = root .. "/test-lock.json"
   local file = assert(io.open(path, "w"))
   file:write("not json")
   file:close()
-  amber.setup({ root = root, plugins = { "alice/example" } })
-  assert(not pcall(actions.amber_install.run, {}, { plugin = "alice/example" }))
+  amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
+  assert(actions.amber_info.run({}, {}).lock_error)
+  assert(not pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" }))
   file = assert(io.open(path, "r"))
   assert(file:read("*a") == "not json")
   file:close()
 end)
 
-test("updates a clean detached checkout after restore", function(amber, actions, _, calls, behavior)
-  amber.setup({ root = root, plugins = { "alice/example" } })
-  actions.amber_install.run({}, { plugin = "alice/example" })
-  behavior.detached = true
-  assert(actions.amber_update.run({}, { plugin = "alice/example" }).status == "updated")
-  local checkout = called(calls, "git", "checkout")
-  assert(checkout and checkout.argv[4] == "refs/remotes/origin/main")
-end)
-
-local function count_calls(calls, command)
-  local total = 0
-  for _, call in ipairs(calls) do
-    if call.argv[1] == command then
-      total = total + 1
-    end
-  end
-  return total
-end
-
-test("passes a runtime context to setup", function(amber, actions)
+test("passes a runtime context to setup", function(amber, _, _, _, behavior)
   amber.setup({ root = root, plugins = { "dave/plain" } })
   local context = assert(_G.plain_ctx, "setup must receive a context")
   assert(context.name == "dave/plain" and context.dir == root .. "/dave/plain")
   assert(context.module_dir == context.dir and context.commit == nil)
   assert(context.data_dir:match("/rex/amber/dave/plain$"))
-  actions.amber_install.run({}, { plugin = "dave/plain" })
+  behavior.seed({ ["dave/plain"] = { commit = A } })
   amber.setup({ root = root, plugins = { "dave/plain" } })
-  assert(_G.plain_ctx.commit == string.rep("a", 40))
+  assert(_G.plain_ctx.commit == A)
 end)
 
-test("builds on install and gates setup until built", function(amber, actions, logs, calls)
+test("gates setup until built and builds in Rex", function(amber, actions, logs, calls, behavior)
   local spec = { "dave/built", build = "make" }
+  behavior.seed({ ["dave/built"] = { commit = A } })
   amber.setup({ root = root, plugins = { spec } })
   assert(_G.built_ctx == nil, "setup must wait for the build")
-  assert(logs[#logs][2]:match("run amber_build"))
+  assert(logs[#logs][2]:match("run amber build"))
   assert(actions.amber_status.run({}, {})["dave/built"].loaded == "unbuilt")
-  assert(actions.amber_install.run({}, { plugin = "dave/built" }).status == "already installed")
+  assert(actions.amber_info.run({}, {}).plugins[1].load_status == "unbuilt")
+  assert(actions.amber_lua_build.run({}, { plugin = "dave/built" }).status == "built")
   local build = assert(called(calls, "sh", "-c"))
   assert(build.argv[3] == "make" and build.opts.cwd == root .. "/dave/built")
   assert(build.opts.env.AMBER_PLUGIN_NAME == "dave/built")
   assert(build.opts.timeout and build.opts.timeout <= 23)
+  assert(behavior.lock_data.plugins["dave/built"].built == A)
   amber.setup({ root = root, plugins = { spec } })
-  assert(_G.built_ctx and _G.built_ctx.commit == string.rep("a", 40))
+  assert(_G.built_ctx and _G.built_ctx.commit == A)
   assert(actions.amber_status.run({}, {})["dave/built"].built == true)
-  actions.amber_install.run({}, { plugin = "dave/built" })
-  assert(count_calls(calls, "sh") == 1, "an unchanged commit must not rebuild")
 end)
 
 test("a failed build is retryable", function(amber, actions, _, calls, behavior)
+  behavior.seed({ ["dave/built"] = { commit = A } })
   amber.setup({ root = root, plugins = { { "dave/built", build = { "make", "make install" } } } })
   behavior.build_fail = true
-  local ok, err = pcall(actions.amber_install.run, {}, { plugin = "dave/built" })
+  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
   assert(not ok and tostring(err):match("build step 1 failed: build exploded"), tostring(err))
   assert(count_calls(calls, "sh") == 1, "later steps must not run after a failure")
-  local entry = behavior.lock_data.plugins["dave/built"]
-  assert(entry.commit == string.rep("a", 40) and entry.built == nil)
-  assert(actions.amber_status.run({}, {})["dave/built"].built == false)
+  assert(behavior.lock_data.plugins["dave/built"].built == nil)
   behavior.build_fail = false
-  assert(actions.amber_build.run({}, { plugin = "dave/built" }).status == "built")
+  assert(actions.amber_lua_build.run({}, { plugin = "dave/built" }).status == "built")
   assert(count_calls(calls, "sh") == 3)
-  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+  assert(behavior.lock_data.plugins["dave/built"].built == A)
 end)
 
-test("amber_build rebuilds and skips plugins without one", function(amber, actions, _, calls, b)
-  local behavior = b
-  amber.setup({ root = root, plugins = { { "dave/built", build = "make" }, "dave/plain" } })
-  actions.amber_install.run({}, {})
-  assert(count_calls(calls, "sh") == 1)
-  local result = actions.amber_build.run({}, {})
-  assert(result.plugins["dave/built"].status == "built")
-  assert(result.plugins["dave/plain"].status == "no build step")
-  assert(count_calls(calls, "sh") == 2, "amber_build must rebuild even when already built")
-  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
-  amber.setup({ root = root, plugins = { { "bob/missing", build = "make" } } })
-  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "bob/missing" })
+test("amber_lua_build skips plugins without a build and needs a checkout", function(amber, actions)
+  amber.setup({ root = root, plugins = { "dave/plain", { "bob/missing", build = "make" } } })
+  assert(actions.amber_lua_build.run({}, { plugin = "dave/plain" }).status == "no build step")
+  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "bob/missing" })
   assert(not ok and tostring(err):match("not installed"))
-end)
-
-test("a new commit invalidates the recorded build", function(amber, actions, _, calls, behavior)
-  amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
-  actions.amber_install.run({}, { plugin = "dave/built" })
-  actions.amber_update.run({}, { plugin = "dave/built" })
-  assert(count_calls(calls, "sh") == 1, "an update to the same commit keeps the build")
-  behavior.head_hash = string.rep("b", 40)
-  actions.amber_update.run({}, { plugin = "dave/built" })
-  assert(count_calls(calls, "sh") == 2)
-  local entry = behavior.lock_data.plugins["dave/built"]
-  assert(entry.commit == string.rep("b", 40) and entry.built == string.rep("b", 40))
+  ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "nobody/none" })
+  assert(not ok and tostring(err):match("unknown plugin"))
 end)
 
 test("runs function build steps and reports failures", function(amber, actions, _, _, behavior)
   local seen
   local mode = "ok"
+  behavior.seed({ ["dave/built"] = { commit = A } })
   amber.setup({
     root = root,
     plugins = {
@@ -714,17 +519,17 @@ test("runs function build steps and reports failures", function(amber, actions, 
       },
     },
   })
-  assert(actions.amber_install.run({}, { plugin = "dave/built" }).status == "already installed")
-  assert(seen.name == "dave/built" and seen.commit == string.rep("a", 40))
+  assert(actions.amber_lua_build.run({}, { plugin = "dave/built" }).status == "built")
+  assert(seen.name == "dave/built" and seen.commit == A)
   assert(seen.dir == root .. "/dave/built" and seen.module_dir == seen.dir)
-  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+  assert(behavior.lock_data.plugins["dave/built"].built == A)
   for failure, expected in pairs({
     ["false"] = "returned false",
     message = "no compiler",
     raise = "boom",
   }) do
     mode = failure
-    local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+    local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
     assert(not ok and tostring(err):match(expected), failure .. ": " .. tostring(err))
   end
 end)
@@ -761,7 +566,7 @@ test("rejects malformed built entries in the lockfile", function()
     rex.json.decode = function()
       return {
         format = 1,
-        plugins = { ["a/b"] = { commit = string.rep("a", 40), built = built } },
+        plugins = { ["a/b"] = { commit = A, built = built } },
       }
     end
     local data, err = lock.read(path)
@@ -769,30 +574,25 @@ test("rejects malformed built entries in the lockfile", function()
   end
   ---@diagnostic disable-next-line: duplicate-set-field
   rex.json.decode = function()
-    return {
-      format = 1,
-      plugins = { ["a/b"] = { commit = string.rep("a", 40), built = string.rep("a", 40) } },
-    }
+    return { format = 1, plugins = { ["a/b"] = { commit = A, built = A } } }
   end
   assert(lock.read(path))
 end)
 
-test("amber_build requires a lock entry", function(amber, actions, _, calls)
+test("amber_lua_build requires a lock entry", function(amber, actions, _, calls)
   amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
-  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
   assert(not ok and tostring(err):match("no lockfile entry"), tostring(err))
   assert(count_calls(calls, "sh") == 0, "nothing may be built without a lock entry")
 end)
 
 test("does not build a drifted checkout", function(amber, actions, _, calls, behavior)
+  behavior.seed({ ["dave/built"] = { commit = A } })
+  behavior.head_hash = B
   amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
-  actions.amber_install.run({}, { plugin = "dave/built" })
-  assert(count_calls(calls, "sh") == 1)
-  behavior.head_hash = string.rep("b", 40)
-  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
   assert(not ok and tostring(err):match("checkout differs from lockfile"), tostring(err))
-  assert(count_calls(calls, "sh") == 1, "a drifted checkout must not be built")
-  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
+  assert(count_calls(calls, "sh") == 0, "a drifted checkout must not be built")
 end)
 
 test("builds outside the lockfile guard", function(amber, actions, _, calls, behavior)
@@ -808,6 +608,7 @@ test("builds outside the lockfile guard", function(amber, actions, _, calls, beh
   end
   local during
   local move_lock = false
+  behavior.seed({ ["dave/built"] = { commit = A } })
   amber.setup({
     root = root,
     plugins = {
@@ -816,29 +617,103 @@ test("builds outside the lockfile guard", function(amber, actions, _, calls, beh
         build = function(ctx)
           during = held()
           if move_lock then
-            behavior.lock_data.plugins["dave/built"].commit = string.rep("c", 40)
+            behavior.lock_data.plugins["dave/built"].commit = C
           end
           return ctx.exec({ "sh", "-c", "true" }, { env = { EXTRA = "1" } })
         end,
       },
     },
   })
-  actions.amber_install.run({}, { plugin = "dave/built" })
+  actions.amber_lua_build.run({}, { plugin = "dave/built" })
   assert(during == 0, "the lockfile guard must be released before building")
   local build = assert(called(calls, "sh", "-c"))
   assert(build.opts.env.EXTRA == "1" and build.opts.env.AMBER_PLUGIN_NAME == "dave/built")
   assert(build.opts.env.AMBER_PLUGIN_DIR == root .. "/dave/built")
   assert(build.opts.env.AMBER_PLUGIN_MODULE_DIR == root .. "/dave/built")
   move_lock = true
-  local ok, err = pcall(actions.amber_build.run, {}, { plugin = "dave/built" })
+  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
   assert(not ok and tostring(err):match("lockfile changed during the build"), tostring(err))
-  assert(behavior.lock_data.plugins["dave/built"].built == string.rep("a", 40))
 end)
 
-test("rejects expired operation budgets", function()
-  local git = assert(loadfile("amber/git.lua"))(dofile("amber/util.lua"))
-  local status, err = git.install({ local_path = false }, os.time() - 1)
-  assert(not status and err:match("time budget exhausted"))
+test("rejects expired build budgets", function()
+  local build = assert(loadfile("amber/build.lua"))(dofile("amber/util.lua"))
+  local ok, err = build.run({ name = "a/b", build = { "make" } }, A, os.time() - 1)
+  assert(not ok and err:match("time budget exhausted"))
+end)
+
+test("amber_info reports every plugin in order", function(amber, actions)
+  amber.setup({
+    root = root,
+    plugins = {
+      {
+        "elly/utility",
+        subdir = "panes/tools",
+        main = "tools",
+        build = { "make", function() end },
+      },
+      { "bob/local", path = root .. "/bob" },
+      { "old/thing", enabled = false, version = "v1.0.0" },
+    },
+  })
+  local info = actions.amber_info.run({}, {})
+  assert(info.version == amber.version and info.root == root and info.dir:sub(-1) ~= "/")
+  assert(info.lockfile == root .. "/test-lock.json" and info.lock_error == nil)
+  local p = info.plugins
+  assert(#p == 3 and p[1].name == "elly/utility@panes/tools" and p[1].subdir == "panes/tools")
+  assert(p[1].dir == root .. "/elly/utility--panes-tools" and p[1].parent == root .. "/elly")
+  assert(p[1].module_dir == p[1].dir .. "/panes/tools" and p[1].load_status == "unbuilt")
+  assert(p[1].url == "https://github.com/elly/utility.git" and p[1].data_dir)
+  assert(p[1].build[1].type == "shell" and p[1].build[1].command == "make")
+  assert(p[1].build[2].type == "lua" and p[1].build[2].command == nil)
+  assert(p[2].local_path == true and p[2].dir == root .. "/bob")
+  assert(p[3].enabled == false and p[3].version == "v1.0.0" and p[3].load_status == "disabled")
+end)
+
+test("actions open the CLI in a floating pane", function(amber, actions, _, _, behavior)
+  amber.setup({
+    root = root,
+    plugins = { "alice/example", { "elly/utility", subdir = "panes/tools", main = "tools" } },
+  })
+  local result = actions.amber_update.run(session, { plugin = "elly/utility@panes/tools" })
+  assert(result.opened == "layer:1")
+  local layer = behavior.layer
+  assert(layer.focus == true and layer.bounds[1] == 0.125 and layer.bounds[2] == 0.125)
+  assert(layer.bounds[3] == 0.75 and layer.bounds[4] == 0.75)
+  local block = layer.layout.block
+  assert(block.flavor == "com.superlogical.terminal.shell" and block.options.shell == "none")
+  local argv = block.options.command
+  assert(argv[1] == root .. "/bin-amber" and argv[2] == "update")
+  assert(argv[3] == "elly/utility@panes/tools" and argv[4] == nil)
+  for action, subcommand in pairs({
+    amber_install = "install",
+    amber_restore = "restore",
+    amber_build = "build",
+    amber_outdated = "outdated",
+    amber_clean = "clean",
+  }) do
+    actions[action].run(session, {})
+    local command = behavior.layer.layout.block.options.command
+    assert(command[2] == subcommand and command[3] == nil, action)
+  end
+  actions.amber.run(session, {})
+  assert(#behavior.layer.layout.block.options.command == 1)
+  local ok, err = pcall(actions.amber_update.run, session, { plugin = "nobody/none" })
+  assert(not ok and tostring(err):match("unknown plugin: nobody/none"))
+end)
+
+test("explains a missing session or CLI", function(amber, actions, logs)
+  amber.setup({ root = root, plugins = { "alice/example" } })
+  local ok, err = pcall(actions.amber_update.run, {}, {})
+  assert(
+    not ok and tostring(err):match("no Rex session") and tostring(err):match("bin%-amber update")
+  )
+  amber.setup({ root = root, cli = root .. "/nope", plugins = { "alice/example" } })
+  ok, err = pcall(actions.amber_update.run, session, {})
+  assert(not ok and tostring(err):match("Amber CLI not found at " .. root .. "/nope"))
+  local before = #logs
+  amber.setup({ root = root, cli = "relative/amber", plugins = { "alice/example" } })
+  assert(#logs == before + 1 and logs[#logs][2]:match("cli must be an absolute path"))
+  assert(actions.amber_info == nil or true)
 end)
 
 print("tests passed")

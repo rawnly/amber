@@ -7,7 +7,7 @@ local function remaining_budget(deadline)
   end
   local remaining = deadline - os.time()
   if remaining <= 0 then
-    return nil, "action time budget exhausted; run amber_build to retry"
+    return nil, "action time budget exhausted; run amber build to retry"
   end
   return remaining
 end
