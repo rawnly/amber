@@ -212,7 +212,7 @@ With Homebrew, run `brew upgrade amber-rex`. Otherwise:
 amber self-update            # or --check to only look
 ```
 
-This downloads the latest release of the `amber` command, verifies its checksum, replaces the binary, checks out the matching release tag in the library directory (the parent of `bin/`, or `--dir`), and reloads Rex. The command and the library are released together and must match; `amber doctor` warns when they differ. It refuses a library checkout with local changes or on a branch other than `main`, so a development clone is never moved.
+This downloads the latest release of the `amber` command, verifies its checksum, replaces the binary, checks out the matching release tag in the library directory (the parent of `bin/`, or `--dir`), and reloads Rex. The command and the library are released together and must match; `amber doctor` warns when they differ. It only moves to a newer release, refuses a command built from source (version `dev`), and refuses a library checkout with local changes or on a branch other than `main`, so a development clone is never moved.
 
 ## Writing a plugin
 

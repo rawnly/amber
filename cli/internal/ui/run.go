@@ -21,8 +21,8 @@ var ErrFailed = errors.New("some plugins failed")
 // Run shows the full-screen interface until the user quits.
 func Run(opts Options) error {
 	m := newModel(opts)
-	defer m.cancel()
 	final, err := tea.NewProgram(m).Run()
+	m.stop()
 	if err != nil {
 		return err
 	}

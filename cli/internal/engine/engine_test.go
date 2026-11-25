@@ -293,6 +293,17 @@ func TestRestore(t *testing.T) {
 	}
 }
 
+func TestRestoreFetchesMissingCommit(t *testing.T) {
+	f, o := newFixture(t), newOrigin(t, "a")
+	p := f.plugin("alice/a", o)
+	f.must(OpInstall, p)
+	newer := o.commit("pushed from another machine")
+	writeLockFile(t, f.engine.Info.Lockfile, map[string]lockEntry{p.Name: {Commit: newer}})
+	if res := f.must(OpRestore, p); res.Status != StatusRestored || f.head(p) != newer {
+		t.Fatalf("restore: %+v", res)
+	}
+}
+
 func TestRestoreNeedsLockEntry(t *testing.T) {
 	f, o := newFixture(t), newOrigin(t, "a")
 	p := f.plugin("alice/a", o)
@@ -500,6 +511,10 @@ func TestClean(t *testing.T) {
 	run(t, t.TempDir(), "clone", "-q", o.bare, disabled.Dir)
 	orphan := filepath.Join(f.engine.Info.Root, "alice", "orphan")
 	run(t, t.TempDir(), "clone", "-q", o.bare, orphan)
+	// A local path plugin stored under Root must never be cleaned.
+	local := filepath.Join(f.engine.Info.Root, "alice", "local")
+	run(t, t.TempDir(), "clone", "-q", o.bare, local)
+	f.plugin("alice/local", o, func(p *amber.Plugin) { p.LocalPath, p.Dir = true, local })
 	temp := filepath.Join(f.engine.Info.Root, "alice", ".amber-AbCd1234")
 	guard := filepath.Join(f.engine.Info.Root, "alice", "x.amber-lock")
 	notGit := filepath.Join(f.engine.Info.Root, "alice", "notes")
@@ -536,7 +551,7 @@ func TestClean(t *testing.T) {
 			t.Errorf("%s still exists", d)
 		}
 	}
-	for _, d := range []string{kept.Dir, disabled.Dir, notGit} {
+	for _, d := range []string{kept.Dir, disabled.Dir, notGit, local} {
 		if _, err := os.Stat(d); err != nil {
 			t.Errorf("%s was removed", d)
 		}

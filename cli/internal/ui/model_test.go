@@ -173,3 +173,34 @@ func TestRenderFitsWidth(t *testing.T) {
 		}
 	}
 }
+
+// slowBackend holds a job until cancelled, then takes a moment to clean up.
+type slowBackend struct {
+	fakeBackend
+	started  chan struct{}
+	finished bool
+}
+
+func (s *slowBackend) Run(ctx context.Context, _ engine.Op, _ *amber.Plugin, _ engine.Emit) (engine.Result, error) {
+	close(s.started)
+	<-ctx.Done()
+	time.Sleep(50 * time.Millisecond)
+	s.finished = true
+	return engine.Result{}, ctx.Err()
+}
+
+func TestStopWaitsForRunningJobs(t *testing.T) {
+	b := &slowBackend{started: make(chan struct{})}
+	m := newModel(Options{})
+	m.session = &Session{Info: &amber.Info{}, Backend: b}
+	p := &amber.Plugin{Name: "a/b"}
+	go m.runJob(job{op: OpUpdate, name: p.Name}, p)()
+	<-b.started
+	m.stop()
+	if !b.finished {
+		t.Fatal("stop returned before the running job cleaned up")
+	}
+	if msg := m.runJob(job{op: OpUpdate, name: p.Name}, p)().(jobDoneMsg); msg.err == nil {
+		t.Fatal("a job started after stop ran")
+	}
+}

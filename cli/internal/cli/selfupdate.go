@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,8 +92,12 @@ func selfUpdate(ctx context.Context, g *globals, dir string, checkOnly bool) err
 		return err
 	}
 	current := Version
-	if strings.TrimPrefix(current, "v") == strings.TrimPrefix(rel.Tag, "v") {
-		fmt.Printf("Amber %s is the latest release.\n", current)
+	newer, err := isNewer(rel.Tag, current)
+	if err != nil {
+		return err
+	}
+	if !newer {
+		fmt.Printf("Amber %s is up to date (latest release %s).\n", current, rel.Tag)
 		return nil
 	}
 	fmt.Printf("Amber %s is available (you have %s).\n", rel.Tag, current)
@@ -267,4 +272,43 @@ func replaceBinary(ctx context.Context, exe, url, want string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), exe)
+}
+
+// isNewer reports whether release tag latest is newer than current. A source
+// build ("dev") is refused so self-update never moves a development clone.
+func isNewer(latest, current string) (bool, error) {
+	if current == "dev" {
+		return false, errors.New("amber was built from source; update the clone with git pull and rebuild")
+	}
+	l, ok := parseVersion(latest)
+	if !ok {
+		return false, fmt.Errorf("latest release has an unexpected tag %q", latest)
+	}
+	c, ok := parseVersion(current)
+	if !ok {
+		return false, fmt.Errorf("cannot compare the running version %q with %s", current, latest)
+	}
+	for i := range l {
+		if l[i] != c[i] {
+			return l[i] > c[i], nil
+		}
+	}
+	return false, nil
+}
+
+// parseVersion reads vX.Y.Z (the "v" is optional).
+func parseVersion(v string) ([3]int, bool) {
+	var out [3]int
+	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
+	if len(parts) != 3 {
+		return out, false
+	}
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || strings.HasPrefix(part, "+") {
+			return out, false
+		}
+		out[i] = n
+	}
+	return out, true
 }

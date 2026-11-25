@@ -157,7 +157,7 @@ func (e *Engine) State(ctx context.Context, p *amber.Plugin) State {
 
 // CleanPlan lists what Clean would remove. Lock entries for undeclared
 // plugins are included only when withLockEntries is true. It never lists a
-// declared plugin's checkout, local plugins, or anything outside Root and
+// declared plugin's checkout (local plugins included) or anything outside Root and
 // the lockfile's directory.
 func (e *Engine) CleanPlan(ctx context.Context, withLockEntries bool) ([]CleanItem, error) {
 	return e.cleanPlan(withLockEntries)

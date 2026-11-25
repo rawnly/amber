@@ -73,6 +73,7 @@ func runStep(ctx context.Context, dir, command string, env []string, rep reporte
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = dir
 	cmd.Env = env
+	cmd.WaitDelay = waitDelay
 	last := &tail{}
 	o := rep.output()
 	line := o.line

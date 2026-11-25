@@ -117,9 +117,8 @@ func (e *Engine) declared() (dirs, names map[string]bool) {
 	dirs, names = map[string]bool{}, map[string]bool{}
 	for _, p := range e.Info.Plugins {
 		names[p.Name] = true
-		if !p.LocalPath {
-			dirs[filepath.Clean(p.Dir)] = true
-		}
+		// Local plugins count too: one may live under Root and hold unpushed work.
+		dirs[filepath.Clean(p.Dir)] = true
 	}
 	return dirs, names
 }

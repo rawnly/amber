@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -131,6 +132,11 @@ type model struct {
 	opts   Options
 	ctx    context.Context
 	cancel context.CancelFunc
+	// work tracks commands that touch plugin files, so Run can wait for
+	// their cleanup (guards, temp clones) before the process exits.
+	workMu  sync.Mutex
+	work    sync.WaitGroup
+	stopped bool
 
 	session *Session
 	connErr error
@@ -300,6 +306,11 @@ func (m *model) runJob(j job, p *amber.Plugin) tea.Cmd {
 	emit := m.emit(j.op)
 	return func() tea.Msg {
 		done := jobDoneMsg{job: j}
+		if !m.track() {
+			done.err = errors.New("cancelled")
+			return done
+		}
+		defer m.work.Done()
 		if j.op == OpCheck {
 			done.check, done.err = backend.Check(m.ctx, p, emit)
 		} else {
@@ -307,6 +318,26 @@ func (m *model) runJob(j job, p *amber.Plugin) tea.Cmd {
 		}
 		return done
 	}
+}
+
+// track registers a running command; false once the window has quit.
+func (m *model) track() bool {
+	m.workMu.Lock()
+	defer m.workMu.Unlock()
+	if m.stopped {
+		return false
+	}
+	m.work.Add(1)
+	return true
+}
+
+// stop cancels running commands and waits for them to clean up.
+func (m *model) stop() {
+	m.cancel()
+	m.workMu.Lock()
+	m.stopped = true
+	m.workMu.Unlock()
+	m.work.Wait()
 }
 
 func (m *model) busy() bool { return m.running > 0 || len(m.queue) > 0 }
@@ -557,7 +588,13 @@ func (m *model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			if len(m.cleanItems) > 0 && !m.cleaning && !m.cleanLoading {
 				m.cleaning = true
 				items, backend := m.cleanItems, m.session.Backend
-				return func() tea.Msg { return cleanDoneMsg{err: backend.Clean(m.ctx, items)} }
+				return func() tea.Msg {
+					if !m.track() {
+						return cleanDoneMsg{err: errors.New("cancelled")}
+					}
+					defer m.work.Done()
+					return cleanDoneMsg{err: backend.Clean(m.ctx, items)}
+				}
 			}
 		case "n", "esc", "q", "H":
 			if !m.cleaning {

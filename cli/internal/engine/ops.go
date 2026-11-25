@@ -127,6 +127,13 @@ func (e *Engine) run(ctx context.Context, op Op, p *amber.Plugin, emit Emit) (Re
 		} else if dirty {
 			return res, errors.New("working tree is not clean; refusing to restore")
 		}
+		// The lockfile may come from a machine that updated past this clone.
+		if _, err := revParse(ctx, p.Dir, entry.Commit); err != nil {
+			rep.stage("fetching")
+			if _, err := git(ctx, gitCall{dir: p.Dir, network: true, out: rep.output()}, "fetch", "--progress", "--tags", "origin"); err != nil {
+				return res, err
+			}
+		}
 		rep.stage("checking out")
 		if _, err := git(ctx, gitCall{dir: p.Dir}, "checkout", "--detach", entry.Commit, "--"); err != nil {
 			return res, err

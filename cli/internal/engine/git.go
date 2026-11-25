@@ -19,6 +19,9 @@ import (
 const (
 	networkTimeout = 10 * time.Minute
 	localTimeout   = time.Minute
+	// waitDelay bounds how long a killed command's children may keep its
+	// output pipes open, so cancel and timeouts actually return.
+	waitDelay = 5 * time.Second
 )
 
 // output receives a command's output: log lines, and Git's progress
@@ -112,6 +115,7 @@ func git(ctx context.Context, call gitCall, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = call.dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	cmd.WaitDelay = waitDelay
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	errTail := &tail{}
