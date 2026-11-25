@@ -127,7 +127,7 @@ var ErrNotManaged = errors.New("plugin is not managed by Amber (local or disable
 // Engine runs operations for one Amber configuration.
 type Engine struct {
 	Info *amber.Info
-	// Rex runs Lua build steps through amber.LuaBuildAction. May be nil when
+	// Rex runs Lua build steps through amber.BuildArgs. May be nil when
 	// no plugin has a Lua build step.
 	Rex amber.Actions
 }

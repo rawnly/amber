@@ -5,7 +5,7 @@ Amber has two halves that share one lockfile:
 - **The Lua library** (`amber.lua`, `amber/*.lua`), loaded by the Rex server's configuration. It validates specs, loads plugins, reads the lockfile to warn about drift, registers Amber's Rex actions, and runs build steps written as Lua functions.
 - **The `amber` command** (`cli/`, Go), run on the Rex server machine. It installs, updates, restores, builds, checks, and cleans plugins with Git, writes the lockfile, and shows progress in a terminal window modelled on lazy.nvim's.
 
-The command learns the configuration from the library through the `amber_info` action, over Rex's control API. Neither half parses the other's code.
+The command learns the configuration from the library through the `amber` action's `info` operation (`op=info`), over Rex's control API. Neither half parses the other's code.
 
 ## Execution model
 
@@ -14,7 +14,7 @@ Rex config load / check / reload
   └─ amber.setup(config)
        ├─ validate and normalize plugin specifications       amber/spec.lua
        ├─ register actions: amber, amber_install, amber_update, amber_restore, amber_build,
-       │   amber_outdated, amber_clean (open the command), amber_info, amber_lua_build, amber_status
+       │   amber_outdated, amber_clean (open the command; `amber` also takes `op=info|build|status`)
        └─ load enabled entry points, in declaration order    amber/loader.lua
             └─ require(main).setup(opts, ctx)
 
@@ -24,10 +24,10 @@ Rex action, e.g. amber_update [plugin=owner/repo]
 
 amber <command>                          (a terminal, or the pane above)
   ├─ dial Rex: $REX_SERVER or the local socket, WebSocket rex.control.v1
-  ├─ client.action amber_info  → root, lockfile, normalized plugins, load statuses
+  ├─ client.action amber op=info  → root, lockfile, normalized plugins, load statuses
   ├─ Git and shell builds, several plugins at once          cli/internal/engine
-  ├─ client.action amber_lua_build plugin=…  (only for builds with a Lua function step)
-  └─ server.config_reload once anything changed, then amber_info again for load statuses
+  ├─ client.action amber op=build plugin=…  (only for builds with a Lua function step)
+  └─ server.config_reload once anything changed, then op=info again for load statuses
 ```
 
 Configuration loading never installs or updates. Rex also executes the configuration during `rex config check`, so plugin setup code runs during checks. Plugins execute as Lua code with the server user's privileges; Amber is not a sandbox.
@@ -52,7 +52,7 @@ For every enabled plugin, Amber chooses the module tree inside the checkout (ins
 
 At load, Amber reads the lockfile and warns when a versioned checkout differs from its locally resolved version, when the checkout differs from its lock entry, or when the declared version changed since it was locked. A plugin with a build step whose lock entry lacks `built == commit` is not set up (`unbuilt`). Config load never writes the lockfile and never fetches.
 
-The pane actions validate the optional `plugin` argument (unknown, disabled, and local plugins are errors), require the configured binary to exist, and require `ctx.session_id`; without a session, the error names the terminal command to run instead. `amber_status` keeps reporting load status, errors, commit, lock match, build state, and version match without fetching.
+The pane actions validate the optional `plugin` argument (unknown, disabled, and local plugins are errors), require the configured binary to exist, and require `ctx.session_id`; without a session, the error names the terminal command to run instead. `amber op=status` keeps reporting load status, errors, commit, lock match, build state, and version match without fetching.
 
 ## The `amber` command
 
@@ -61,7 +61,7 @@ The pane actions validate the optional `plugin` argument (unknown, disabled, and
 | Package | Role |
 | --- | --- |
 | `internal/rex` | Minimal client for the control API: endpoint resolution, hello/welcome, concurrent requests matched by id, events skipped. Only `client.action`, `server.config_reload`, and `server.version`. |
-| `internal/amber` | The `amber_info` contract. Accepts `{}` for empty lists, since Lua cannot tell them from objects. |
+| `internal/amber` | The `op=info` contract. Accepts `{}` for empty lists, since Lua cannot tell them from objects. |
 | `internal/engine` | Git, version resolution, lockfile transactions, builds, checks, and cleaning. |
 | `internal/ui` | The Bubble Tea plugin window, plain-text output, `list` and `doctor` reports. |
 | `internal/cli` | Cobra commands and `self-update`. |
@@ -94,7 +94,7 @@ Install records an entry only when none exists. Update replaces the entry and ke
 
 After install, update, or restore, Amber builds when the plugin has steps and the lock entry's `built` differs from its `commit`; `amber build` always builds. A build first checks that `HEAD` equals the locked commit and refuses a drifted checkout. Shell-only builds run each step as `sh -c` in `module_dir` with `AMBER_PLUGIN_NAME`, `AMBER_PLUGIN_DIR`, `AMBER_PLUGIN_MODULE_DIR`, and `AMBER_PLUGIN_DATA_DIR`, up to 30 minutes per step, streaming output; the first failure stops the build. A second transaction records `built` only if the entry still locks the built commit.
 
-Lua functions can only run inside Rex, so a declaration with any function step is built entirely by the `amber_lua_build` action: it checks the entry and `HEAD`, runs every step through `amber/build.lua` within a roughly 23-second action budget, and records `built` the same way. A failed build leaves the checkout and lock entry recorded and the plugin unbuilt, so the build can be retried.
+Lua functions can only run inside Rex, so a declaration with any function step is built entirely by the `amber` action's `build` operation: it checks the entry and `HEAD`, runs every step through `amber/build.lua` within a roughly 23-second action budget, and records `built` the same way. A failed build leaves the checkout and lock entry recorded and the plugin unbuilt, so the build can be retried.
 
 ### Cleaning
 

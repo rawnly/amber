@@ -155,6 +155,6 @@ if [ -e "$old_dir/rex_plugin_manager.lua" ]; then
   printf '%s\n' 'To migrate:'
   printf '%s\n' '  1. Point your Rex config at the new amber.lua and rename rpm.setup to amber.setup.'
   printf '%s\n' '  2. Rename the lockfile rpm-lock.json to amber-lock.json (Amber does not read the old name).'
-  printf '%s\n' '  3. Use amber_install, amber_update, amber_restore and amber_status instead of rpm_*.'
+  printf '%s\n' '  3. Use amber_install, amber_update, amber_restore and amber op=status instead of rpm_*.'
   printf '%s\n' '  4. Delete the old directory and any leftover .rpm-* directories once Amber works.'
 fi

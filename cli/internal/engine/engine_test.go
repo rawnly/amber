@@ -420,7 +420,7 @@ type fakeRex struct {
 func (r *fakeRex) Action(_ context.Context, name string, args map[string]any, _ any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.calls = append(r.calls, fmt.Sprintf("%s %v", name, args["plugin"]))
+	r.calls = append(r.calls, fmt.Sprintf("%s %v %v", name, args["op"], args["plugin"]))
 	return nil
 }
 
@@ -434,7 +434,7 @@ func TestLuaBuildRunsInRex(t *testing.T) {
 	if res := f.must(OpInstall, p); !res.Built {
 		t.Fatalf("not built: %+v", res)
 	}
-	if len(rex.calls) != 1 || rex.calls[0] != amber.LuaBuildAction+" alice/a" {
+	if len(rex.calls) != 1 || rex.calls[0] != amber.Action+" build alice/a" {
 		t.Fatalf("calls = %v", rex.calls)
 	}
 }

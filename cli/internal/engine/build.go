@@ -34,7 +34,7 @@ func (e *Engine) build(ctx context.Context, p *amber.Plugin, commit string, rep 
 		rep.stage("building in Rex")
 		actx, cancel := context.WithTimeout(ctx, 40*time.Second)
 		defer cancel()
-		return e.Rex.Action(actx, amber.LuaBuildAction, map[string]any{"plugin": p.Name}, nil)
+		return e.Rex.Action(actx, amber.Action, amber.BuildArgs(p.Name), nil)
 	}
 
 	env := append(os.Environ(),

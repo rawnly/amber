@@ -1,5 +1,5 @@
 // Package amber holds the configuration Amber's Lua library reports through
-// the amber_info action: where things live and every normalized plugin spec.
+// the amber action's info operation: where things live and every normalized plugin spec.
 package amber
 
 import (
@@ -8,14 +8,20 @@ import (
 	"fmt"
 )
 
-// InfoAction is the Lua action that reports Info.
-const InfoAction = "amber_info"
+// Action is the one Lua action the command calls. Without `op` it opens the
+// window; with one it runs a data operation and returns its result.
+const Action = "amber"
 
-// LuaBuildAction runs a plugin's Lua build steps on the server and records the
-// build in the lockfile. It takes `plugin` and fails with the step's error.
-const LuaBuildAction = "amber_lua_build"
+// InfoArgs asks for Info.
+var InfoArgs = map[string]any{"op": "info"}
 
-// Info is the result of amber_info.
+// BuildArgs runs a plugin's Lua build steps on the server and records the
+// build in the lockfile. It fails with the step's error.
+func BuildArgs(plugin string) map[string]any {
+	return map[string]any{"op": "build", "plugin": plugin}
+}
+
+// Info is the result of the info operation.
 type Info struct {
 	Version   string   `json:"version"`    // Lua library version
 	Dir       string   `json:"dir"`        // Lua library directory (where amber.lua lives)
@@ -50,7 +56,7 @@ type Plugin struct {
 func (p *Plugin) Managed() bool { return p.Enabled && !p.LocalPath }
 
 // HasLuaBuild reports whether any build step is a Lua function, which only
-// the server can run (through LuaBuildAction).
+// the server can run (through BuildArgs).
 func (p *Plugin) HasLuaBuild() bool {
 	for _, step := range p.Build {
 		if step.Type == BuildLua {
@@ -127,8 +133,14 @@ type Actions interface {
 // Fetch asks the Lua library for its configuration.
 func Fetch(ctx context.Context, rex Actions) (*Info, error) {
 	var info Info
-	if err := rex.Action(ctx, InfoAction, nil, &info); err != nil {
-		return nil, fmt.Errorf("cannot read Amber's configuration from Rex: %w; is Amber loaded by your Rex config, and is it recent enough to have %s?", err, InfoAction)
+	const mismatch = "is Amber loaded by your Rex config, and does the library match this command? Run amber self-update (or brew upgrade amber-rex)"
+	if err := rex.Action(ctx, Action, InfoArgs, &info); err != nil {
+		return nil, fmt.Errorf("cannot read Amber's configuration from Rex: %w; %s", err, mismatch)
+	}
+	// A library from before the op argument ignores it and answers with the
+	// window it opened instead of the configuration.
+	if info.Version == "" {
+		return nil, fmt.Errorf("Rex's Amber library did not report its configuration; %s", mismatch)
 	}
 	return &info, nil
 }

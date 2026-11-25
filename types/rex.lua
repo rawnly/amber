@@ -15,6 +15,7 @@
 
 ---@class RexActionArgs
 ---@field plugin? string
+---@field op? string
 
 ---@class RexAction
 ---@field name string

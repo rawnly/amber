@@ -130,13 +130,23 @@ function M.setup(config)
     end
     return "built"
   end
+  -- Data operations the amber command calls through the single `amber` action.
+  local ops = {}
   local function cli_action(action, title, subcommand, optional)
     rex.action({
       name = action,
       title = title,
       category = "Plugins",
-      args = optional and { plugin = "string?" } or nil,
+      args = action == "amber" and { op = "string?", plugin = "string?" }
+        or (optional and { plugin = "string?" } or nil),
       run = function(ctx, args)
+        if args and args.op then
+          local handler = action == "amber" and ops[args.op]
+          if not handler then
+            error("unknown op: " .. tostring(args.op), 0)
+          end
+          return handler(ctx, args)
+        end
         local plugin = args and args.plugin
         if plugin then
           local entry = by_name[plugin]
@@ -193,126 +203,113 @@ function M.setup(config)
   cli_action("amber_build", "Amber: Build Plugins", "build", true)
   cli_action("amber_outdated", "Amber: Check for Updates", "outdated", false)
   cli_action("amber_clean", "Amber: Clean", "clean", false)
-  rex.action({
-    name = "amber_lua_build",
-    title = "Build Lua Plugin Steps",
-    category = "Plugins",
-    args = { plugin = "string" },
-    run = function(_, args)
-      local plugin = by_name[args.plugin]
-      if not plugin then
-        error("unknown plugin: " .. args.plugin, 0)
-      end
-      if not plugin.enabled then
-        error(plugin.name .. ": plugin is disabled", 0)
-      end
-      local status, err = build_plugin(plugin, os.time() + 23)
-      if not status then
-        error(plugin.name .. ": " .. tostring(err), 0)
-      end
-      return { plugin = plugin.name, status = status }
-    end,
-  })
-  rex.action({
-    name = "amber_info",
-    title = "Amber Configuration",
-    category = "Plugins",
-    run = function()
-      local lock_data, lock_error = lock.read(lockfile)
-      local info = {
-        version = M.version,
-        dir = directory:gsub("/$", ""),
-        root = root,
-        lockfile = lockfile,
-        state_root = state_root,
-        plugins = {},
+  ops.build = function(_, args)
+    if type(args.plugin) ~= "string" then
+      error("build requires a plugin", 0)
+    end
+    local plugin = by_name[args.plugin]
+    if not plugin then
+      error("unknown plugin: " .. args.plugin, 0)
+    end
+    if not plugin.enabled then
+      error(plugin.name .. ": plugin is disabled", 0)
+    end
+    local status, err = build_plugin(plugin, os.time() + 23)
+    if not status then
+      error(plugin.name .. ": " .. tostring(err), 0)
+    end
+    return { plugin = plugin.name, status = status }
+  end
+  ops.info = function()
+    local lock_data, lock_error = lock.read(lockfile)
+    local info = {
+      version = M.version,
+      dir = directory:gsub("/$", ""),
+      root = root,
+      lockfile = lockfile,
+      state_root = state_root,
+      plugins = {},
+    }
+    for _, plugin in ipairs(plugins) do
+      local row = {
+        name = plugin.name,
+        slug = plugin.slug,
+        url = plugin.url,
+        dir = plugin.dir,
+        module_dir = plugin.module_dir,
+        parent = plugin.parent,
+        subdir = plugin.subdir,
+        main = plugin.main,
+        version = plugin.version,
+        enabled = plugin.enabled,
+        local_path = plugin.local_path,
+        data_dir = plugin.data_dir,
+        build = {},
+        load_status = plugin.load_status or (plugin.enabled and "not loaded" or "disabled"),
+        load_error = plugin.load_error,
       }
-      for _, plugin in ipairs(plugins) do
-        local row = {
-          name = plugin.name,
-          slug = plugin.slug,
-          url = plugin.url,
-          dir = plugin.dir,
-          module_dir = plugin.module_dir,
-          parent = plugin.parent,
-          subdir = plugin.subdir,
-          main = plugin.main,
-          version = plugin.version,
-          enabled = plugin.enabled,
-          local_path = plugin.local_path,
-          data_dir = plugin.data_dir,
-          build = {},
-          load_status = plugin.load_status or (plugin.enabled and "not loaded" or "disabled"),
-          load_error = plugin.load_error,
-        }
-        for _, step in ipairs(plugin.build or {}) do
-          row.build[#row.build + 1] = type(step) == "string" and { type = "shell", command = step }
-            or { type = "lua" }
-        end
-        info.plugins[#info.plugins + 1] = row
+      for _, step in ipairs(plugin.build or {}) do
+        row.build[#row.build + 1] = type(step) == "string" and { type = "shell", command = step }
+          or { type = "lua" }
       end
-      if not lock_data then
-        info.lock_error = lock_error
+      info.plugins[#info.plugins + 1] = row
+    end
+    if not lock_data then
+      info.lock_error = lock_error
+    end
+    return info
+  end
+  ops.status = function()
+    local result = {}
+    local lock_data, lock_error = lock.read(lockfile)
+    local deadline = os.time() + 23
+    for _, plugin in ipairs(plugins) do
+      local git_result
+      if
+        not plugin.local_path
+        and util.exists(plugin.dir .. "/.git/HEAD")
+        and os.time() < deadline
+      then
+        git_result = util.run(
+          { "git", "rev-parse", "HEAD" },
+          { cwd = plugin.dir, timeout = math.min(2, deadline - os.time()) }
+        )
       end
-      return info
-    end,
-  })
-  rex.action({
-    name = "amber_status",
-    title = "Rex Plugin Status",
-    category = "Plugins",
-    run = function()
-      local result = {}
-      local lock_data, lock_error = lock.read(lockfile)
-      local deadline = os.time() + 23
-      for _, plugin in ipairs(plugins) do
-        local git_result
-        if
-          not plugin.local_path
-          and util.exists(plugin.dir .. "/.git/HEAD")
-          and os.time() < deadline
-        then
-          git_result = util.run(
-            { "git", "rev-parse", "HEAD" },
-            { cwd = plugin.dir, timeout = math.min(2, deadline - os.time()) }
-          )
-        end
-        local version_matches, version_error
-        if plugin.version and git_result and os.time() < deadline then
-          version_matches, version_error = git.version_status(plugin, deadline)
-        end
-        local locked = lock_data and lock_data.plugins[plugin.name]
-        local head = git_result and git_result.stdout:gsub("%s+$", "") or nil
-        local lock_matches
-        if locked and head then
-          lock_matches = locked.commit == head
-        end
-        local built
-        if plugin.build and locked then
-          built = locked.built == locked.commit
-        end
-        result[plugin.name] = {
-          enabled = plugin.enabled,
-          path = plugin.dir,
-          subdir = plugin.subdir,
-          local_path = plugin.local_path,
-          installed = plugin.local_path and util.exists(plugin.dir)
-            or util.exists(plugin.dir .. "/.git/HEAD"),
-          loaded = plugin.load_status or "not loaded",
-          error = plugin.load_error,
-          version = plugin.version,
-          version_matches = version_matches,
-          version_error = version_error,
-          commit = head,
-          locked_commit = locked and locked.commit or nil,
-          lock_matches = lock_matches,
-          built = built,
-          lock_error = lock_error,
-        }
+      local version_matches, version_error
+      if plugin.version and git_result and os.time() < deadline then
+        version_matches, version_error = git.version_status(plugin, deadline)
       end
-      return result
-    end,
-  })
+      local locked = lock_data and lock_data.plugins[plugin.name]
+      local head = git_result and git_result.stdout:gsub("%s+$", "") or nil
+      local lock_matches
+      if locked and head then
+        lock_matches = locked.commit == head
+      end
+      local built
+      if plugin.build and locked then
+        built = locked.built == locked.commit
+      end
+      result[plugin.name] = {
+        enabled = plugin.enabled,
+        path = plugin.dir,
+        subdir = plugin.subdir,
+        local_path = plugin.local_path,
+        installed = plugin.local_path and util.exists(plugin.dir)
+          or util.exists(plugin.dir .. "/.git/HEAD"),
+        loaded = plugin.load_status or "not loaded",
+        error = plugin.load_error,
+        version = plugin.version,
+        version_matches = version_matches,
+        version_error = version_error,
+        commit = head,
+        locked_commit = locked and locked.commit or nil,
+        lock_matches = lock_matches,
+        built = built,
+        lock_error = lock_error,
+      }
+    end
+    return result
+  end
   local lock_data, lock_error = lock.read(lockfile)
   if not lock_data then
     rex.log("error", "amber: " .. tostring(lock_error))

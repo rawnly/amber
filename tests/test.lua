@@ -195,7 +195,7 @@ test("loads installed plugins without shadowing user modules", function(amber, a
   assert(_G.plugin_message == "configured" and require("example") == package.loaded.example)
   assert(require("keys") == "user")
   assert(logs[1][2]:match("not found") and not called(calls, "git", "clone"))
-  local report = actions.amber_status.run({}, {})
+  local report = actions.amber.run({}, { op = "status" })
   assert(report["alice/example"].loaded == "loaded" and report["bob/missing"].loaded == "missing")
 end)
 
@@ -212,7 +212,7 @@ test("disabled plugins neither load nor open the CLI", function(amber, actions, 
   assert(_G.plugin_message == nil and #logs == 0 and not called(calls, "git", "clone"))
   local ok, err = pcall(actions.amber_install.run, session, { plugin = "alice/example" })
   assert(not ok and tostring(err):match("disabled"))
-  assert(not pcall(actions.amber_lua_build.run, session, { plugin = "alice/example" }))
+  assert(not pcall(actions.amber.run, session, { op = "build", plugin = "alice/example" }))
 end)
 
 test("loads a local checkout without a cached module", function(amber, actions)
@@ -265,7 +265,7 @@ test("loads a subdir plugin from its own module root", function(amber, actions)
   })
   assert(_G.subdir_message == "installed")
   assert(not pcall(require, "utility"), "the repo-root module must not resolve")
-  local report = actions.amber_status.run({}, {})
+  local report = actions.amber.run({}, { op = "status" })
   local row = report["elly/utility@panes/tools"]
   assert(row and row.subdir == "panes/tools" and row.path == root .. "/elly/utility--panes-tools")
 end)
@@ -331,7 +331,7 @@ test("reports duplicate dirs: sanitized collision and plain repo", function(ambe
   })
   assert(logs[first + 1][2]:match("duplicate install location"))
   assert(_G.subdir_message == nil, "a disabled checkout must not satisfy a subdir plugin")
-  assert(actions.amber_status.run({}, {})["elly/utility@panes/tools"] == nil)
+  assert(actions.amber.run({}, { op = "status" })["elly/utility@panes/tools"] == nil)
   -- Different subdirs can sanitize to the same install directory.
   amber.setup({
     root = root,
@@ -367,7 +367,7 @@ test("marks a missing subdirectory and names it", function(amber, actions)
     root = root,
     plugins = { { "alice/example", path = root .. "/bob", subdir = "gone", main = "tools" } },
   })
-  local row = actions.amber_status.run({}, {})["alice/example@gone"]
+  local row = actions.amber.run({}, { op = "status" })["alice/example@gone"]
   assert(row and row.loaded == "missing" and row.error:match("subdir gone not found"))
 end)
 
@@ -382,7 +382,7 @@ test("warns instead of erroring for an uninstalled subdir checkout", function(am
   for _, entry in ipairs(logs) do
     assert(entry[1] ~= "error", "unexpected error log: " .. entry[2])
   end
-  local row = actions.amber_status.run({}, {})["elly/notyet@panes/tools"]
+  local row = actions.amber.run({}, { op = "status" })["elly/notyet@panes/tools"]
   assert(row and row.loaded == "missing")
   assert(row.error:match("module tools not found in"))
   assert(not row.error:match("subdir"))
@@ -401,7 +401,7 @@ test("names a missing subdirectory in an existing checkout", function(amber, act
     end
   end
   assert(#errors == 1 and errors[1]:match("subdir gone not found in"), table.concat(errors, "; "))
-  local row = actions.amber_status.run({}, {})["elly/claimed@gone"]
+  local row = actions.amber.run({}, { op = "status" })["elly/claimed@gone"]
   assert(row and row.loaded == "missing" and row.error:match("subdir gone not found"))
 end)
 
@@ -426,7 +426,7 @@ test("warns about a changed version spec and reports drift", function(amber, act
     end
   end
   assert(found)
-  local row = actions.amber_status.run({}, {})["alice/example"]
+  local row = actions.amber.run({}, { op = "status" })["alice/example"]
   assert(row.locked_commit == A and row.lock_matches == false)
 end)
 
@@ -436,8 +436,8 @@ test("reports a corrupt lockfile without overwriting it", function(amber, action
   file:write("not json")
   file:close()
   amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
-  assert(actions.amber_info.run({}, {}).lock_error)
-  assert(not pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" }))
+  assert(actions.amber.run({}, { op = "info" }).lock_error)
+  assert(not pcall(actions.amber.run, {}, { op = "build", plugin = "dave/built" }))
   file = assert(io.open(path, "r"))
   assert(file:read("*a") == "not json")
   file:close()
@@ -460,9 +460,9 @@ test("gates setup until built and builds in Rex", function(amber, actions, logs,
   amber.setup({ root = root, plugins = { spec } })
   assert(_G.built_ctx == nil, "setup must wait for the build")
   assert(logs[#logs][2]:match("run amber build"))
-  assert(actions.amber_status.run({}, {})["dave/built"].loaded == "unbuilt")
-  assert(actions.amber_info.run({}, {}).plugins[1].load_status == "unbuilt")
-  assert(actions.amber_lua_build.run({}, { plugin = "dave/built" }).status == "built")
+  assert(actions.amber.run({}, { op = "status" })["dave/built"].loaded == "unbuilt")
+  assert(actions.amber.run({}, { op = "info" }).plugins[1].load_status == "unbuilt")
+  assert(actions.amber.run({}, { op = "build", plugin = "dave/built" }).status == "built")
   local build = assert(called(calls, "sh", "-c"))
   assert(build.argv[3] == "make" and build.opts.cwd == root .. "/dave/built")
   assert(build.opts.env.AMBER_PLUGIN_NAME == "dave/built")
@@ -470,29 +470,29 @@ test("gates setup until built and builds in Rex", function(amber, actions, logs,
   assert(behavior.lock_data.plugins["dave/built"].built == A)
   amber.setup({ root = root, plugins = { spec } })
   assert(_G.built_ctx and _G.built_ctx.commit == A)
-  assert(actions.amber_status.run({}, {})["dave/built"].built == true)
+  assert(actions.amber.run({}, { op = "status" })["dave/built"].built == true)
 end)
 
 test("a failed build is retryable", function(amber, actions, _, calls, behavior)
   behavior.seed({ ["dave/built"] = { commit = A } })
   amber.setup({ root = root, plugins = { { "dave/built", build = { "make", "make install" } } } })
   behavior.build_fail = true
-  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
+  local ok, err = pcall(actions.amber.run, {}, { op = "build", plugin = "dave/built" })
   assert(not ok and tostring(err):match("build step 1 failed: build exploded"), tostring(err))
   assert(count_calls(calls, "sh") == 1, "later steps must not run after a failure")
   assert(behavior.lock_data.plugins["dave/built"].built == nil)
   behavior.build_fail = false
-  assert(actions.amber_lua_build.run({}, { plugin = "dave/built" }).status == "built")
+  assert(actions.amber.run({}, { op = "build", plugin = "dave/built" }).status == "built")
   assert(count_calls(calls, "sh") == 3)
   assert(behavior.lock_data.plugins["dave/built"].built == A)
 end)
 
 test("amber_lua_build skips plugins without a build and needs a checkout", function(amber, actions)
   amber.setup({ root = root, plugins = { "dave/plain", { "bob/missing", build = "make" } } })
-  assert(actions.amber_lua_build.run({}, { plugin = "dave/plain" }).status == "no build step")
-  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "bob/missing" })
+  assert(actions.amber.run({}, { op = "build", plugin = "dave/plain" }).status == "no build step")
+  local ok, err = pcall(actions.amber.run, {}, { op = "build", plugin = "bob/missing" })
   assert(not ok and tostring(err):match("not installed"))
-  ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "nobody/none" })
+  ok, err = pcall(actions.amber.run, {}, { op = "build", plugin = "nobody/none" })
   assert(not ok and tostring(err):match("unknown plugin"))
 end)
 
@@ -519,7 +519,7 @@ test("runs function build steps and reports failures", function(amber, actions, 
       },
     },
   })
-  assert(actions.amber_lua_build.run({}, { plugin = "dave/built" }).status == "built")
+  assert(actions.amber.run({}, { op = "build", plugin = "dave/built" }).status == "built")
   assert(seen.name == "dave/built" and seen.commit == A)
   assert(seen.dir == root .. "/dave/built" and seen.module_dir == seen.dir)
   assert(behavior.lock_data.plugins["dave/built"].built == A)
@@ -529,7 +529,7 @@ test("runs function build steps and reports failures", function(amber, actions, 
     raise = "boom",
   }) do
     mode = failure
-    local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
+    local ok, err = pcall(actions.amber.run, {}, { op = "build", plugin = "dave/built" })
     assert(not ok and tostring(err):match(expected), failure .. ": " .. tostring(err))
   end
 end)
@@ -581,7 +581,7 @@ end)
 
 test("amber_lua_build requires a lock entry", function(amber, actions, _, calls)
   amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
-  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
+  local ok, err = pcall(actions.amber.run, {}, { op = "build", plugin = "dave/built" })
   assert(not ok and tostring(err):match("no lockfile entry"), tostring(err))
   assert(count_calls(calls, "sh") == 0, "nothing may be built without a lock entry")
 end)
@@ -590,7 +590,7 @@ test("does not build a drifted checkout", function(amber, actions, _, calls, beh
   behavior.seed({ ["dave/built"] = { commit = A } })
   behavior.head_hash = B
   amber.setup({ root = root, plugins = { { "dave/built", build = "make" } } })
-  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
+  local ok, err = pcall(actions.amber.run, {}, { op = "build", plugin = "dave/built" })
   assert(not ok and tostring(err):match("checkout differs from lockfile"), tostring(err))
   assert(count_calls(calls, "sh") == 0, "a drifted checkout must not be built")
 end)
@@ -624,14 +624,14 @@ test("builds outside the lockfile guard", function(amber, actions, _, calls, beh
       },
     },
   })
-  actions.amber_lua_build.run({}, { plugin = "dave/built" })
+  actions.amber.run({}, { op = "build", plugin = "dave/built" })
   assert(during == 0, "the lockfile guard must be released before building")
   local build = assert(called(calls, "sh", "-c"))
   assert(build.opts.env.EXTRA == "1" and build.opts.env.AMBER_PLUGIN_NAME == "dave/built")
   assert(build.opts.env.AMBER_PLUGIN_DIR == root .. "/dave/built")
   assert(build.opts.env.AMBER_PLUGIN_MODULE_DIR == root .. "/dave/built")
   move_lock = true
-  local ok, err = pcall(actions.amber_lua_build.run, {}, { plugin = "dave/built" })
+  local ok, err = pcall(actions.amber.run, {}, { op = "build", plugin = "dave/built" })
   assert(not ok and tostring(err):match("lockfile changed during the build"), tostring(err))
 end)
 
@@ -655,7 +655,7 @@ test("amber_info reports every plugin in order", function(amber, actions)
       { "old/thing", enabled = false, version = "v1.0.0" },
     },
   })
-  local info = actions.amber_info.run({}, {})
+  local info = actions.amber.run({}, { op = "info" })
   assert(info.version == amber.version and info.root == root and info.dir:sub(-1) ~= "/")
   assert(info.lockfile == root .. "/test-lock.json" and info.lock_error == nil)
   local p = info.plugins
@@ -713,7 +713,12 @@ test("explains a missing session or CLI", function(amber, actions, logs)
   local before = #logs
   amber.setup({ root = root, cli = "relative/amber", plugins = { "alice/example" } })
   assert(#logs == before + 1 and logs[#logs][2]:match("cli must be an absolute path"))
-  assert(actions.amber_info == nil or true)
+  assert(
+    actions.amber_info == nil and actions.amber_status == nil and actions.amber_lua_build == nil
+  )
+  ok, err = pcall(actions.amber.run, {}, { op = "nope" })
+  assert(not ok and tostring(err):match("unknown op: nope"))
+  assert(type(actions.amber.run({}, { op = "status" })) == "table")
 end)
 
 print("tests passed")

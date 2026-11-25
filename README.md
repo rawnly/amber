@@ -171,9 +171,9 @@ Use these in the command palette or a key binding. Each opens `amber` in a cente
 | `amber_install`, `amber_update`, `amber_restore`, `amber_build` | The window, running that operation. Optional `plugin=owner/repo`. |
 | `amber_outdated` | The window, checking for updates |
 | `amber_clean` | The clean view |
-| `amber_status` | Nothing: returns load status, errors, path, commit, lock match, build state, and version match. Does not fetch. |
+| `amber` with `op=status` | Nothing: returns load status, errors, path, commit, lock match, build state, and version match. Does not fetch. |
 
-The pane actions need a Rex session, so `rex do amber_update` from a plain shell fails and suggests the `amber` command instead. `amber_info` and `amber_lua_build` are internal. Load failures also go to `rex.log`; see [Rex logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs).
+The pane actions need a Rex session, so `rex do amber_update` from a plain shell fails and suggests the `amber` command instead. `amber op=info` and `amber op=build plugin=…` are what the command calls; `rex do amber op=status` replaces the old `amber_status` action. Load failures also go to `rex.log`; see [Rex logs](https://www.superlogical.com/rex/docs/linux/shared-server#logs).
 
 ## 🔧 Configuration
 
@@ -251,7 +251,7 @@ Some plugins need work after checkout, such as compiling a helper:
 
 - A string runs as `sh -c <string>` in the plugin directory (`module_dir` for `subdir` plugins). Its environment has `AMBER_PLUGIN_NAME`, `AMBER_PLUGIN_DIR` (the checkout), `AMBER_PLUGIN_MODULE_DIR`, and `AMBER_PLUGIN_DATA_DIR`. Its output shows in the plugin window.
 - A function receives `{ name, dir, module_dir, data_dir, commit, exec }`. `exec(argv, opts)` runs a command in `module_dir` within the remaining action time; `opts.env` adds to the variables above instead of replacing them. The step fails if the function raises an error, returns `false`, or returns `nil` and a message.
-- Functions can only run inside Rex, so a plugin with any function step builds entirely through the `amber_lua_build` action, within its roughly 23-second budget. Shell-only builds run in the `amber` command with a 30-minute limit per step.
+- Functions can only run inside Rex, so a plugin with any function step builds entirely through the `amber` action's `build` operation, within its roughly 23-second budget. Shell-only builds run in the `amber` command with a 30-minute limit per step.
 - `build = false` disables the step. Local `path` plugins cannot have one: Amber never runs anything for them.
 - A build always targets the locked commit. If the checkout has moved away from it, the build is refused; run `amber restore` first. `amber build` needs a lock entry, so run `amber install` first if the lockfile was removed.
 - A failed build still records the checkout in the lockfile and leaves the plugin unbuilt. Fix the cause and run `amber build`.

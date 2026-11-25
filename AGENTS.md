@@ -8,9 +8,9 @@ Amber is a Lua 5.1 plugin manager loaded by the Rex server's configuration, plus
 - `amber/spec.lua`: plugin spec validation and normalization.
 - `amber/loader.lua`: Lua module loading.
 - `amber/git.lua`: commit and version checks for load-time warnings.
-- `amber/lock.lua`: validated lockfile reads and serialized atomic writes (used by `amber_lua_build`).
+- `amber/lock.lua`: validated lockfile reads and serialized atomic writes (used by the `amber` action's `build` operation).
 - `amber/build.lua`: build steps run inside Rex, for builds with Lua functions.
-- `cli/`: the Go command. `internal/rex` (control API client), `internal/amber` (`amber_info` contract), `internal/engine` (Git, lockfile, builds, clean), `internal/ui` (Bubble Tea window), `internal/cli` (commands, self-update).
+- `cli/`: the Go command. `internal/rex` (control API client), `internal/amber` (`op=info` contract), `internal/engine` (Git, lockfile, builds, clean), `internal/ui` (Bubble Tea window), `internal/cli` (commands, self-update).
 - `amber/util.lua`: shared command and filesystem helpers.
 - `types/rex.lua`: partial editor-only Rex API declarations.
 - `tests/test.lua` and `scripts/test.sh`: Lua tests and temporary fixtures; Go tests live next to their packages.
@@ -24,7 +24,7 @@ Write idiomatic Lua 5.1, use local functions and descriptive snake_case names, a
 ## Design constraints
 
 - Config load, reload, and `rex config check` execute plugin setup but must not install or update plugins. Installation is explicitly requested through `amber install` (or the `amber_install` action, which opens it).
-- The Lua library and the `amber` command share the lockfile format and its `.lock` guard; change both together. The command learns the config only through `amber_info`.
+- The Lua library and the `amber` command share the lockfile format and its `.lock` guard; change both together. The command learns the config only through `amber op=info`.
 - Rex runs config on the server. In Lua, use `rex.exec` with argument arrays for subprocesses; `os.execute` and `io.popen` are unavailable in Rex. Check process-start errors and nonzero exit status.
 - Plugin setup registers actions and bindings at config load; operations requiring a live session or client belong in callbacks. Respect Rex action deadlines.
 - Prefer `rex/lua/` when present, otherwise `lua/`; do not silently fall back to `lua/` when `rex/lua/` exists. Keep Lua module-name collisions and `package.loaded` semantics in mind.
