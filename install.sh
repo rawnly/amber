@@ -145,7 +145,7 @@ fi
 printf '\nAmber installed at %s\n' "$install_dir"
 printf '%s\n' 'Add Amber to your Rex config and declare your plugins:'
 printf '  %s/amber.lua\n' "$install_dir"
-printf '%s\n' 'See https://github.com/rawnly/amber#installation for the configuration example.'
+printf '%s\n' 'See https://github.com/rawnly/amber#-quick-start for the configuration example.'
 printf '%s\n' 'The installer does not modify your Rex config or install plugins.'
 printf '%s\n' "$cli_note"
 

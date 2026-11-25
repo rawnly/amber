@@ -1,6 +1,6 @@
 # Writing an Amber plugin
 
-An Amber plugin is a GitHub repository containing a Lua 5.1 module that registers Rex actions and bindings. This guide covers what Amber expects from that repository. For the user-side spec options, see the [README](../README.md#plugin-spec); for how loading works internally, see [architecture.md](architecture.md).
+An Amber plugin is a GitHub repository containing a Lua 5.1 module that registers Rex actions and bindings. This guide covers what Amber expects from that repository. For the user-side spec options, see the [README](../README.md#-configuration); for how loading works internally, see [architecture.md](architecture.md).
 
 Amber's tests stub Rex. Check Rex APIs beyond `rex.action`, `rex.exec`, and `rex.log` against the current [Rex Lua reference](https://www.superlogical.com/rex/docs/reference/lua); `types/rex.lua` declares only the parts Amber itself uses.
 
