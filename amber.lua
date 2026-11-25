@@ -2,7 +2,7 @@
 
 ---@type AmberModule
 ---@diagnostic disable-next-line: missing-fields
-local M = { version = "0.1.0" }
+local M = { version = "0.1.1" }
 
 local source = debug.getinfo(1, "S").source
 local directory = source:match("^@?(.*/)") or "./"
